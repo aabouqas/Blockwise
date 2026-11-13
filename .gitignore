@@ -1,0 +1,11 @@
+# build output
+target/
+
+# private notes and art that must not be published
+/private/
+
+# development screenshots (the README's are in docs/images)
+/shots/
+
+.DS_Store
+*.swp

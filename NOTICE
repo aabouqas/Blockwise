@@ -1,0 +1,41 @@
+Blockwise
+Copyright 2026 Aissam Abouqassime El Edrissi
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+The apps you make with Blockwise are yours
+------------------------------------------
+The projects you build, and the Kotlin, Swift, XML and other files Blockwise
+generates from them (including the helper code it writes into those files),
+belong to you. As the copyright holder of Blockwise, I grant you permission
+to use, change, and distribute that generated output under any license you
+choose, including closed-source and commercial licenses, with no need to
+keep this notice or credit Blockwise.
+
+Third-party parts
+-----------------
+This product includes the Lucide icon font (app/assets/lucide.ttf),
+Copyright (c) Lucide Contributors 2022, portions Copyright (c) Cole Bemis
+2013-2022 (Feather, MIT). ISC License: licenses/Lucide-ISC.txt.
+
+Generated Android apps include the "visibility" and "visibility_off" icon
+paths from Material Icons, Copyright Google LLC, Apache License 2.0.
+
+The editor's fonts come with egui (epaint_default_fonts): Ubuntu Light
+(Ubuntu Font Licence 1.0), Hack (MIT / Bitstream Vera), Noto Emoji
+(SIL Open Font License 1.1) and emoji-icon-font (MIT). Their licenses are in
+licenses/.
+
+Rust crates used to build Blockwise, and their licenses, are listed in
+THIRD_PARTY.md.
+
+"Blockwise" and its logo (the files in brand/ and app/assets/brand/) are not
+licensed under the Apache License; see section 6 of the license
+(Trademarks). You may use them unchanged to refer to Blockwise, but not as
+the name or logo of a fork or another product. The wordmark's letters are
+drawn from the Inter typeface by Rasmus Andersson (SIL Open Font License
+1.1); the font itself is not included.
+
+Android is a trademark of Google LLC. iPhone, iOS, Swift and Xcode are
+trademarks of Apple Inc. Blockwise is not affiliated with or endorsed by
+Google or Apple.

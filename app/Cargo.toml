@@ -1,0 +1,35 @@
+[package]
+name = "blockwise"
+version = "0.1.0"
+edition = "2021"
+authors = ["Aissam Abouqassime El Edrissi"]
+description = "Build Android and iOS apps visually: design screens, snap logic blocks together, try the app at once, and get real Kotlin and SwiftUI projects."
+license = "Apache-2.0"
+readme = "../README.md"
+keywords = ["no-code", "app-builder", "android", "ios", "blocks"]
+categories = ["development-tools", "gui"]
+
+[[bin]]
+name = "Blockwise"
+path = "src/main.rs"
+
+[dependencies]
+eframe = { version = "=0.29.1", default-features = false, features = ["default_fonts", "glow", "persistence"] }
+egui = "=0.29.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+ab_glyph = "0.2"
+rfd = "0.15"
+dirs = "5"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+winit = "0.30"
+muda = { version = "0.15", default-features = false }
+objc2 = "0.5"
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 2
