@@ -1,6 +1,6 @@
 # How Blockwise is built
 
-A map of the code for contributors. Blockwise is one Rust crate: a desktop app on [egui](https://github.com/emilk/egui) / eframe. It has no web view and no server. It keeps your projects in one JSON file and turns them into native Kotlin and SwiftUI code.
+A one-page map of the code for contributors. For how each part works, see the [developer guide](developer/README.md). Blockwise is one Rust crate: a desktop app on [egui](https://github.com/emilk/egui) / eframe. It has no web view and no server. It keeps your projects in one JSON file and turns them into native Kotlin and SwiftUI code.
 
 ## Folders
 
@@ -68,6 +68,19 @@ All in `app/src/`.
 - **Undo is snapshots.** Edits replace the project; undo and redo keep earlier copies.
 - **Tests draw real frames.** UI tests run egui headless (`Context::run` with `RawInput`), click by position over several frames, and read painted text shapes.
 - **Screenshots.** `Blockwise --screenshot out.png --open <scene>` renders a named scene (see the `--open` match in `app.rs`). It is used for docs and for checking UI changes.
+
+## Going deeper
+
+| Guide | Covers |
+|---|---|
+| [The data model](developer/data-model.md) | projects, screens, widgets, blocks, saving |
+| [The editor](developer/editor.md) | the window, the designer, the blocks editor, undo |
+| [The engine](developer/engine.md) | running blocks, crashes, timers, the debugger |
+| [Code generation](developer/code-generation.md) | Kotlin, Swift, XML, export |
+| [Phones and builds](developer/devices.md) | Gradle, swiftc, emulator, simulator, Android setup |
+| [The MCP server](developer/mcp.md) | AI assistants |
+| [Testing](developer/testing.md) | unit, UI, screenshot and phone tests |
+| [Recipes](developer/recipes.md) | adding blocks, settings, widgets, events, tools |
 
 ## Building and testing
 

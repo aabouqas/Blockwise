@@ -14,7 +14,7 @@ For a security problem, follow [SECURITY.md](SECURITY.md) instead of opening a p
 
 ## Changing the code
 
-1. Read [docs/architecture.md](docs/architecture.md) for a map of the code.
+1. Read [docs/architecture.md](docs/architecture.md) for a map of the code, then the [developer guide](docs/developer/README.md) for the part you're changing. Its [recipes](docs/developer/recipes.md) list every file to touch when adding a block, a widget setting, a widget, an event or an MCP tool.
 2. Build and test, from the `app/` folder:
 
    ```bash

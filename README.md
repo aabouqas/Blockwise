@@ -54,7 +54,8 @@ Then read the [user guide](docs/user-guide.md).
 
 - [User guide](docs/user-guide.md): projects, screens, the designer, events and blocks, components, assets, debugging, running and exporting.
 - [AI assistants (MCP)](docs/ai-assistants.md): let an assistant build alongside you.
-- [How Blockwise is built](docs/architecture.md): a map of the code for contributors.
+- [How Blockwise is built](docs/architecture.md): a one-page map of the code.
+- [Developer guide](docs/developer/README.md): how each part works, how to test, and step-by-step recipes for common changes.
 - [Contributing](CONTRIBUTING.md) and [security](SECURITY.md).
 
 ## Platforms
