@@ -10,6 +10,8 @@
   <img src="https://img.shields.io/badge/macOS-000000?logo=apple&logoColor=white" alt="macOS">
   <img src="https://img.shields.io/badge/Windows-0078D4?logo=data:image/svg%2bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0id2hpdGUiIGQ9Ik0yIDJoOS41djkuNUgyek0xMi41IDJIMjJ2OS41aC05LjV6TTIgMTIuNWg5LjVWMjJIMnpNMTIuNSAxMi41SDIyVjIyaC05LjV6Ii8+PC9zdmc+" alt="Windows">
   <img src="https://img.shields.io/badge/Linux-FCC624?logo=linux&logoColor=black" alt="Linux">
+  <a href="https://github.com/aabouqas/Blockwise/releases/latest"><img src="https://img.shields.io/github/v/release/aabouqas/Blockwise?label=release&color=5B5BD6" alt="Latest release"></a>
+  <a href="https://github.com/aabouqas/Blockwise/actions/workflows/build.yml"><img src="https://github.com/aabouqas/Blockwise/actions/workflows/build.yml/badge.svg" alt="Build"></a>
   <br>
   <img src="https://img.shields.io/badge/Android-Kotlin-3DDC84?logo=android&logoColor=white" alt="Makes Android apps in Kotlin">
   <img src="https://img.shields.io/badge/iOS-SwiftUI-F05138?logo=swift&logoColor=white" alt="Makes iOS apps in SwiftUI">
