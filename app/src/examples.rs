@@ -3,7 +3,7 @@
 //! first start) adds a copy to the projects. examples/export.py refreshes
 //! them from a project made in Blockwise.
 
-use crate::model::{now_secs, Project, Store};
+use crate::model::{Project, Store};
 
 pub struct Example {
     pub key: &'static str,
@@ -47,32 +47,7 @@ impl Example {
 /// Adds a copy of the example to the projects, with its files. Returns the
 /// new project's id.
 pub fn add(store: &mut Store, ex: &Example) -> Result<u32, String> {
-    let mut p = ex.project();
-    p.id = store.next_project;
-    let base = p.name.clone();
-    let mut k = 1;
-    while store.projects.iter().any(|q| q.name == p.name) {
-        k += 1;
-        p.name = format!("{base} {k}");
-    }
-    if k > 1 {
-        p.app_name = format!("{} {k}", p.app_name);
-    }
-    p.modified = now_secs();
-    // blocks made from now on must not take the example's block ids
-    crate::model::bump_ids(p.screens.iter().map(|s| s.max_block_id()).max().unwrap_or(0));
-    if !ex.files.is_empty() {
-        let dir = p.files_dir();
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).map_err(|e| format!("Couldn't make the files folder: {e}"))?;
-        for (name, bytes) in ex.files {
-            std::fs::write(dir.join(name), bytes).map_err(|e| format!("Couldn't copy {name}: {e}"))?;
-        }
-    }
-    store.next_project += 1;
-    let id = p.id;
-    store.projects.push(p);
-    Ok(id)
+    store.add_copy(ex.project(), ex.files.iter().copied())
 }
 
 #[cfg(test)]
@@ -90,6 +65,11 @@ mod tests {
                 assert!(ex.files.iter().any(|(n, _)| *n == f.file_name()), "{} misses {}", ex.key, f.file_name());
             }
             assert!(image::load_from_memory(ex.thumb).is_ok(), "{} thumbnail", ex.key);
+            // its .bw file (to download from the repository) holds the same
+            let bw = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../examples/{0}/{0}.bw", ex.key));
+            let im = crate::model::read_project_file(&bw).unwrap_or_else(|e| panic!("{}.bw: {e}", ex.key));
+            assert_eq!(crate::model::project_snapshot(&im.project), crate::model::project_snapshot(&p), "{}.bw is out of date: run examples/export.py", ex.key);
+            assert_eq!(im.files.len(), ex.files.len(), "{}.bw files", ex.key);
             let id = add(&mut st, ex).unwrap();
             let q = st.projects.iter().find(|q| q.id == id).unwrap();
             for f in &q.files {

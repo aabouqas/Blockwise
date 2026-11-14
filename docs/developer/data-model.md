@@ -92,5 +92,6 @@ Components have no events of their own. Blocks that wait for something keep what
 
 - `project_snapshot(p)` serialises a project without its modified time. The editor compares snapshots to know if anything changed (undo, "leave without saving?").
 - `Project::rename_screen` renames a screen and every block that opens it; `screen_uses` lists those blocks.
-- `backup(p)` writes one project to `~/Documents/Blockwise backups`.
+- `bw_bytes(p)` makes a `.bw` project file: a zip (written and read by `archive.rs`) holding `project.json` and the project's files under `assets/`. `backup(p)` writes one to `~/Documents/Blockwise backups`.
+- `read_project_file(path)` reads a `.bw` file, any zip with a `project.json` and its `assets` folder, or a bare `project.json` (files from an `assets` folder beside it) for **Import project**, and `Store::add_copy` adds it, or an example, under a new id and a free name.
 - `leave_rule(auto_save, changed)` decides whether leaving a project saves, asks, or just leaves.

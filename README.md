@@ -32,7 +32,7 @@ Blockwise comes with example apps: open **Examples** in the left column and pres
 | Every native widget in one app, with app bar buttons, a pop-up, a bottom sheet, a calendar and a list. | Ten questions from a JSON file, a timer, green and red answers, and a saved best score. |
 | [Android app](https://github.com/aabouqas/Blockwise/releases/latest/download/component-tour.apk) | [Android app](https://github.com/aabouqas/Blockwise/releases/latest/download/brain-quiz.apk) |
 
-More about them in [examples](examples/README.md).
+Each one is also a `.bw` file, a whole project in one file: download it and open it with **Import project…**. More about them in [examples](examples/README.md).
 
 ## Getting started
 

@@ -1,5 +1,5 @@
 //! The macOS menu bar: Blockwise (About, Settings, Hide, Quit), File (new,
-//! open, close and save a project, auto save, export), View (theme, phone)
+//! import, open, close and save a project, auto save, export), View (theme, phone)
 //! and Window. Other systems get no native menu; the same commands stay on
 //! their keyboard shortcuts and in the window.
 
@@ -8,6 +8,7 @@
 pub enum Cmd {
     Settings,
     NewProject,
+    ImportProject,
     OpenProject(u32),
     CloseProject,
     Save,
@@ -31,6 +32,7 @@ fn parse(id: &str) -> Option<Cmd> {
     Some(match id {
         "settings" => Cmd::Settings,
         "new" => Cmd::NewProject,
+        "import" => Cmd::ImportProject,
         "close" => Cmd::CloseProject,
         "save" => Cmd::Save,
         "autosave" => Cmd::ToggleAutoSave,
@@ -108,6 +110,7 @@ mod mac {
                 true,
                 &[
                     &MenuItem::with_id("new", "New Project…", true, key(Code::KeyN)),
+                    &MenuItem::with_id("import", "Import Project…", true, key(Code::KeyO)),
                     &open,
                     &PredefinedMenuItem::separator(),
                     &close,

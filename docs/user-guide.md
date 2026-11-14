@@ -25,7 +25,11 @@ The **Projects** page lists your apps. Click **New project** (⌘N) and give it:
 - an **app id** such as `com.you.counter` (the package name; it must be unique on a phone),
 - an icon and a version.
 
-Each project's **⋯** menu has *Project settings*, *Back up* (one file holding the whole project, saved in `Documents/Blockwise backups`), *Export source* and *Duplicate*. Search with ⌘F, and switch between grid and list.
+Each project's **⋯** menu has *Project settings*, *Back up* (a `.bw` file saved in `Documents/Blockwise backups`), *Save as .bw file…* (the same, wherever you choose, to share or keep), *Export source* and *Duplicate*. Search with ⌘F, and switch between grid and list.
+
+A **`.bw` file** is a whole project in one file: its screens, blocks and settings, and its pictures, sounds, fonts and data files. It's a zip holding `project.json` and an `assets` folder, so any zip tool can open it too.
+
+**Import project…** (⌘O, under **New project**) opens a `.bw` file, or a `project.json` with its files in an `assets` folder beside it (like the examples in the repository; a zip of such a folder works too). You can also drop the file on the window. The imported project is added as a new one, with a number after its name if you already have one by that name.
 
 The **Examples** page, in the left column, has finished apps to learn from: *Component Tour* (every native widget, app bar buttons, a pop-up and a bottom sheet) and *Brain Quiz* (three screens, a timer, a JSON data file and a saved best score). **Open a copy** adds one to your projects, with its files, and opens it; change it as you like. On the first start Blockwise adds a copy of each. See them running in [examples](../examples/README.md).
 
@@ -193,6 +197,7 @@ Open Settings with ⌘, to change:
 | Keys | Does |
 |---|---|
 | ⌘N | New project |
+| ⌘O | Import a project |
 | ⌘F | Search projects |
 | ⌘1 – ⌘4 | Design, Events, Components, Assets |
 | ⌘R | Run |

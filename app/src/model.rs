@@ -1586,23 +1586,131 @@ pub fn project_snapshot(p: &Project) -> String {
     serde_json::to_string(&c).unwrap_or_default()
 }
 
-/// The "Back up" project action: one file holding the whole
-/// project, saved beside the exports. Returns where it went.
+/// The extension of Blockwise project files.
+pub const BW_EXT: &str = "bw";
+
+/// The "Back up" project action: a .bw file holding the whole project and
+/// its files, in Documents/Blockwise backups. Returns where it went.
 pub fn backup(p: &Project) -> std::io::Result<std::path::PathBuf> {
     let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
     let (folder, file) = backup_name(p, stamp);
     let dir = dirs::document_dir().unwrap_or_else(std::env::temp_dir).join("Blockwise backups").join(folder);
     std::fs::create_dir_all(&dir)?;
     // when the file is there already, a number keeps both
-    let mut path = dir.join(format!("{file}.json"));
+    let mut path = dir.join(format!("{file}.{BW_EXT}"));
     let mut k = 2;
     while path.exists() {
-        path = dir.join(format!("{file} {k}.json"));
+        path = dir.join(format!("{file} {k}.{BW_EXT}"));
         k += 1;
     }
-    let text = serde_json::to_string_pretty(p).map_err(std::io::Error::other)?;
-    std::fs::write(&path, text)?;
+    std::fs::write(&path, bw_bytes(p)?)?;
     Ok(path)
+}
+
+/// A .bw project file: a zip holding project.json and the project's files in
+/// assets/, the same layout as an example's folder in the repository.
+pub fn bw_bytes(p: &Project) -> std::io::Result<Vec<u8>> {
+    let mut entries = vec![("project.json".to_string(), serde_json::to_vec_pretty(p).map_err(std::io::Error::other)?)];
+    for (f, path) in p.file_paths() {
+        entries.push((format!("assets/{}", f.file_name()), std::fs::read(path)?));
+    }
+    crate::archive::write(&entries)
+}
+
+/// A project read from a file, ready for `Store::add_copy`.
+pub struct Imported {
+    pub project: Project,
+    /// (file name, bytes) of each of its files that was found.
+    pub files: Vec<(String, Vec<u8>)>,
+    /// Files the project lists that weren't found; they're left out.
+    pub missing: Vec<String>,
+}
+
+/// Reads a project to import: a .bw file (or any zip holding a
+/// project.json and its assets folder, such as a zipped example folder), or a
+/// bare project.json with its files in an `assets` folder beside it.
+pub fn read_project_file(path: &std::path::Path) -> Result<Imported, String> {
+    let not_one = || "That file isn't a Blockwise project.".to_string();
+    let bytes = std::fs::read(path).map_err(|e| format!("Couldn't read the file: {e}"))?;
+    let zipped = crate::archive::is_zip(&bytes);
+    // project.json, and for a zip the files of its assets folder
+    let (json, inside): (Vec<u8>, Vec<(String, Vec<u8>)>) = if zipped {
+        let mut entries = crate::archive::read(&bytes)?;
+        // at the top, or inside one folder
+        let i = (0..entries.len()).filter(|&i| entries[i].0 == "project.json" || entries[i].0.ends_with("/project.json")).min_by_key(|&i| entries[i].0.len()).ok_or_else(not_one)?;
+        let (name, json) = entries.swap_remove(i);
+        let assets = format!("{}assets/", name.strip_suffix("project.json").unwrap_or_default());
+        (json, entries.into_iter().filter_map(|(n, b)| Some((n.strip_prefix(&assets)?.to_string(), b))).collect())
+    } else {
+        (bytes, vec![])
+    };
+    let v: serde_json::Value = serde_json::from_slice(&json).map_err(|_| not_one())?;
+    if v.get("screens").is_none() {
+        return Err(not_one());
+    }
+    let mut project: Project = serde_json::from_value(v).map_err(|e| format!("The project doesn't load: {e}"))?;
+    let dir = path.parent().unwrap_or(std::path::Path::new("."));
+    let (mut files, mut missing) = (vec![], vec![]);
+    for f in &project.files {
+        let n = f.file_name();
+        let found = if !safe_file_name(&n) {
+            None
+        } else if zipped {
+            inside.iter().find(|(m, _)| *m == n).map(|(_, b)| b.clone())
+        } else {
+            [dir.join("assets").join(&n), dir.join(&n)].into_iter().find_map(|p| std::fs::read(p).ok())
+        };
+        match found {
+            Some(b) => files.push((n, b)),
+            None => missing.push(n),
+        }
+    }
+    project.files.retain(|f| !missing.contains(&f.file_name()));
+    Ok(Imported { project, files, missing })
+}
+
+/// A file name that stays inside the folder it's written to.
+fn safe_file_name(n: &str) -> bool {
+    !n.is_empty() && !n.contains(['/', '\\', ':']) && n != "." && n != ".."
+}
+
+impl Store {
+    /// Adds a project made elsewhere (an example, an imported file) with its
+    /// files. It gets a new id, and a number after its name when the name is
+    /// taken. Returns the new id.
+    pub fn add_copy<N: AsRef<str>, B: AsRef<[u8]>>(&mut self, mut p: Project, files: impl IntoIterator<Item = (N, B)>) -> Result<u32, String> {
+        p.id = self.next_project;
+        let base = p.name.clone();
+        let mut k = 1;
+        while self.projects.iter().any(|q| q.name == p.name) {
+            k += 1;
+            p.name = format!("{base} {k}");
+        }
+        if k > 1 {
+            p.app_name = format!("{} {k}", p.app_name);
+        }
+        p.modified = now_secs();
+        // blocks made from now on must not take the project's block ids
+        bump_ids(p.screens.iter().map(|s| s.max_block_id()).max().unwrap_or(0));
+        let dir = p.files_dir();
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut made = false;
+        for (name, bytes) in files {
+            let name = name.as_ref();
+            if !safe_file_name(name) {
+                continue;
+            }
+            if !made {
+                std::fs::create_dir_all(&dir).map_err(|e| format!("Couldn't make the files folder: {e}"))?;
+                made = true;
+            }
+            std::fs::write(dir.join(name), bytes.as_ref()).map_err(|e| format!("Couldn't copy {name}: {e}"))?;
+        }
+        self.next_project += 1;
+        let id = p.id;
+        self.projects.push(p);
+        Ok(id)
+    }
 }
 
 /// Backup naming: a folder
@@ -1726,6 +1834,72 @@ mod tests {
         assert_eq!(leave_rule(false, true), Leave::Ask);
         assert_eq!(leave_rule(false, false), Leave::Go);
         assert_eq!(leave_rule(true, true), Leave::Go);
+    }
+
+    #[test]
+    fn import_bw_files_and_project_files() {
+        let tmp = std::env::temp_dir().join(format!("bw-import-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let mut st = Store { next_project: 950, ..Default::default() };
+
+        // a .bw file brings back the project and its files
+        let ex = crate::examples::EXAMPLES.iter().find(|e| e.key == "brain-quiz").unwrap();
+        let id = crate::examples::add(&mut st, ex).unwrap();
+        let p = st.projects.iter().find(|p| p.id == id).unwrap().clone();
+        assert_eq!(p.files.len(), 1);
+        let bw = tmp.join("Brain Quiz.bw");
+        std::fs::write(&bw, bw_bytes(&p).unwrap()).unwrap();
+        let names: Vec<String> = crate::archive::read(&std::fs::read(&bw).unwrap()).unwrap().into_iter().map(|e| e.0).collect();
+        assert_eq!(names, ["project.json", "assets/questions.json"]);
+        let im = read_project_file(&bw).unwrap();
+        assert!(im.missing.is_empty());
+        let again = st.add_copy(im.project, im.files).unwrap();
+        let q = st.projects.iter().find(|p| p.id == again).unwrap();
+        assert_eq!(q.name, format!("{} 2", p.name));
+        assert_eq!(std::fs::read(q.file_path(&q.files[0])).unwrap(), std::fs::read(p.file_path(&p.files[0])).unwrap());
+        assert_eq!(project_snapshot(&Project { id: 0, name: String::new(), app_name: String::new(), ..q.clone() }), project_snapshot(&Project { id: 0, name: String::new(), app_name: String::new(), ..p.clone() }));
+
+        // so does a zipped example folder: everything inside one folder
+        let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples/brain-quiz");
+        let entries = vec![("brain-quiz/project.json".to_string(), std::fs::read(repo.join("project.json")).unwrap()), ("brain-quiz/assets/questions.json".to_string(), std::fs::read(repo.join("assets/questions.json")).unwrap())];
+        std::fs::write(tmp.join("brain-quiz.zip"), crate::archive::write(&entries).unwrap()).unwrap();
+        let im = read_project_file(&tmp.join("brain-quiz.zip")).unwrap();
+        assert!(im.missing.is_empty() && im.files.len() == 1);
+
+        // a bare project.json finds its files in assets/ beside it
+        let im = read_project_file(&repo.join("project.json")).unwrap();
+        assert!(im.missing.is_empty(), "{:?}", im.missing);
+        assert_eq!(im.files[0].0, "questions.json");
+
+        // without them it still imports, leaving the files out
+        let lone = tmp.join("lone.json");
+        std::fs::copy(repo.join("project.json"), &lone).unwrap();
+        let im = read_project_file(&lone).unwrap();
+        assert_eq!(im.missing, vec!["questions.json".to_string()]);
+        assert!(im.project.files.is_empty() && im.files.is_empty());
+
+        // other files are refused
+        std::fs::write(tmp.join("x.json"), r#"{"hello": 1}"#).unwrap();
+        assert!(read_project_file(&tmp.join("x.json")).is_err());
+        std::fs::write(tmp.join("y.bw"), "not a project").unwrap();
+        assert!(read_project_file(&tmp.join("y.bw")).is_err());
+        std::fs::write(tmp.join("z.bw"), crate::archive::write(&[("readme.txt".into(), b"hi".to_vec())]).unwrap()).unwrap();
+        assert!(read_project_file(&tmp.join("z.bw")).is_err());
+
+        // a file name can't reach outside the project's folder
+        let mut evil = p.clone();
+        evil.files[0].name = "../../evil".into();
+        let entries = vec![("project.json".to_string(), serde_json::to_vec(&evil).unwrap()), ("assets/../../evil.json".to_string(), b"x".to_vec())];
+        std::fs::write(tmp.join("evil.bw"), crate::archive::write(&entries).unwrap()).unwrap();
+        let im = read_project_file(&tmp.join("evil.bw")).unwrap();
+        assert!(im.files.is_empty());
+        assert_eq!(im.missing, vec!["../../evil.json".to_string()]);
+
+        for p in &st.projects {
+            let _ = std::fs::remove_dir_all(p.files_dir());
+        }
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]

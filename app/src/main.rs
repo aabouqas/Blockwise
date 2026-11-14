@@ -6,6 +6,7 @@
 
 mod android_setup;
 mod app;
+mod archive;
 mod asset_view;
 mod blocks;
 #[cfg(test)]

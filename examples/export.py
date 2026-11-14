@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Copies a project from your Blockwise projects into examples/<folder>/,
 as the example that Blockwise builds in: project.json plus its files in
-assets/. Run it after changing an example in Blockwise, then rebuild.
+assets/, and <folder>.bw, the same in one file to download and import.
+Run it after changing an example in Blockwise, then rebuild.
 
     python3 examples/export.py 606 brain-quiz --glyph brain --color FF7C4DFF
 """
-import argparse, json, os, shutil, sys
+import argparse, json, os, shutil, sys, zipfile
 
 def data_dir():
     if sys.platform == "darwin":
@@ -44,4 +45,10 @@ for file in p["files"]:
     name = f'{file["name"]}.{file["ext"]}'
     os.makedirs(assets, exist_ok=True)
     shutil.copy(os.path.join(data_dir(), "files", str(a.project_id), name), os.path.join(assets, name))
+# the .bw file: a zip with the same layout
+with zipfile.ZipFile(os.path.join(out, f"{a.folder}.bw"), "w", zipfile.ZIP_DEFLATED) as z:
+    z.write(os.path.join(out, "project.json"), "project.json")
+    for file in p["files"]:
+        name = f'{file["name"]}.{file["ext"]}'
+        z.write(os.path.join(assets, name), f"assets/{name}")
 print(f"{p['app_name']} → examples/{a.folder} ({len(p['files'])} files)")

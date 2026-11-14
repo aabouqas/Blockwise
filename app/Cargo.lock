@@ -375,9 +375,11 @@ name = "blockwise"
 version = "0.1.0"
 dependencies = [
  "ab_glyph",
+ "crc32fast",
  "dirs",
  "eframe",
  "egui",
+ "flate2",
  "image",
  "muda",
  "objc2 0.5.3",

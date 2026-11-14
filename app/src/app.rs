@@ -1023,6 +1023,8 @@ impl App {
     /// The left column shared by the projects page and the settings page,
     /// headed by the Blockwise logo and name.
     fn nav_panel(&mut self, ui: &mut Ui) {
+        let now = ui.input(|i| i.time);
+        let mut import = false;
         let line = if crate::theme::dark() { Color32::from_rgb(0x33, 0x39, 0x44) } else { Color32::from_rgb(0xDD, 0xE2, 0xEA) };
         SidePanel::left("nav").exact_width(232.0).resizable(false).frame(Frame::none().fill(crate::theme::surface()).inner_margin(Margin::symmetric(14.0, 16.0)).stroke(Stroke::new(1.0_f32, line))).show_inside(ui, |ui| {
             ui.horizontal(|ui| {
@@ -1040,6 +1042,10 @@ impl App {
                 self.settings_open = false;
                 self.examples_open = false;
                 self.new_project_dialog();
+            }
+            ui.add_space(6.0);
+            if ui.add_sized([ui.available_width(), 30.0], Button::new(lbl(ic::DOWNLOAD, "Import project…")).rounding(7.0)).on_hover_text("Open a .bw project file or a project.json (⌘O). You can also drop one on the window.").clicked() {
+                import = true;
             }
             ui.add_space(14.0);
             let count = self.store.projects.len();
@@ -1063,6 +1069,51 @@ impl App {
                 ui.add_space(2.0);
             }
         });
+        // ⌘O, or a project file dropped on the window
+        let free = self.proj_dialog.is_none() && self.export.is_none();
+        if free && ui.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::O)) {
+            import = true;
+        }
+        if import {
+            self.pick_import(now);
+        }
+        let dropped: Vec<std::path::PathBuf> = ui.ctx().input(|i| i.raw.dropped_files.iter().filter_map(|f| f.path.clone()).collect());
+        if let Some(f) = dropped.iter().find(|f| f.extension().is_some_and(|e| [crate::model::BW_EXT, "json", "zip"].iter().any(|x| e.eq_ignore_ascii_case(x)))) {
+            if free {
+                self.import_project(f, now);
+            }
+        }
+        if free && ui.ctx().input(|i| !i.raw.hovered_files.is_empty()) {
+            let r = ui.ctx().screen_rect();
+            let p = ui.ctx().layer_painter(LayerId::new(Order::Foreground, Id::new("drop_project")));
+            p.rect_filled(r, 0.0, Color32::from_black_alpha(110));
+            p.text(r.center(), Align2::CENTER_CENTER, lbl(ic::DOWNLOAD, "Drop a project file to import it"), FontId::proportional(22.0), Color32::WHITE);
+        }
+    }
+
+    /// Import project…: pick a .bw file or a project.json.
+    fn pick_import(&mut self, now: f64) {
+        if let Some(f) = rfd::FileDialog::new().set_title("Import a project").add_filter("Blockwise projects", &[crate::model::BW_EXT, "json", "zip"]).pick_file() {
+            self.import_project(&f, now);
+        }
+    }
+
+    /// Adds the project in `path` (a .bw file, or a project.json with its
+    /// files in an assets folder beside it) to the projects and opens it.
+    fn import_project(&mut self, path: &std::path::Path, now: f64) {
+        let added = crate::model::read_project_file(path).and_then(|im| Ok((self.store.add_copy(im.project, im.files)?, im.missing)));
+        match added {
+            Ok((id, missing)) => {
+                let name = self.store.projects.iter().find(|p| p.id == id).map(|p| p.app_name.clone()).unwrap_or_default();
+                self.settings_open = false;
+                self.examples_open = false;
+                self.editor = Some(Editor::new(id));
+                self.dirty = true;
+                let msg = if missing.is_empty() { format!("Imported {name}") } else { format!("Imported {name} without {}: not found beside the file", missing.join(", ")) };
+                self.notice = Some((msg, now + 6.0));
+            }
+            Err(e) => self.notice = Some((e, now + 6.0)),
+        }
     }
 
     /// The Examples page: the apps that come with Blockwise. Opening one adds
@@ -1147,6 +1198,7 @@ impl App {
             Code,
             Settings,
             Backup,
+            SaveBw,
             Duplicate,
             Export,
             Delete,
@@ -1203,7 +1255,7 @@ impl App {
                         }
                     }
                     ui.separator();
-                    for (label, a) in [(lbl(ic::PENCIL, "Project settings…"), Act::Settings), (lbl(ic::ARCHIVE, "Back up"), Act::Backup), (lbl(ic::FILE_OUTPUT, "Export source…"), Act::Export), (lbl(ic::COPY, "Duplicate"), Act::Duplicate)] {
+                    for (label, a) in [(lbl(ic::PENCIL, "Project settings…"), Act::Settings), (lbl(ic::ARCHIVE, "Back up"), Act::Backup), (lbl(ic::PACKAGE, "Save as .bw file…"), Act::SaveBw), (lbl(ic::FILE_OUTPUT, "Export source…"), Act::Export), (lbl(ic::COPY, "Duplicate"), Act::Duplicate)] {
                         if ui.button(label).clicked() {
                             *act = Some((pid, a));
                             ui.close_menu();
@@ -1356,6 +1408,11 @@ impl App {
                     c.name = name;
                     c.app_name = format!("{} copy", p.app_name);
                     c.modified = now_secs();
+                    // and its pictures, sounds and data files
+                    for (f, from) in p.file_paths() {
+                        let _ = std::fs::create_dir_all(c.files_dir());
+                        let _ = std::fs::copy(from, c.file_path(f));
+                    }
                     self.notice = Some((format!("Made a copy: {}", c.app_name), now + 3.0));
                     self.store.projects.push(c);
                     self.dirty = true;
@@ -1368,6 +1425,22 @@ impl App {
                         },
                         now + 6.0,
                     ));
+                }
+                Act::SaveBw => {
+                    let name = format!("{}.{}", p.app_name.replace(['/', '\\', ':'], "_"), crate::model::BW_EXT);
+                    if let Some(mut path) = rfd::FileDialog::new().set_title("Save the project as a .bw file").set_file_name(&name).add_filter("Blockwise project", &[crate::model::BW_EXT]).save_file() {
+                        if !path.extension().is_some_and(|e| e.eq_ignore_ascii_case(crate::model::BW_EXT)) {
+                            path.set_extension(crate::model::BW_EXT);
+                        }
+                        let saved = crate::model::bw_bytes(&p).and_then(|b| std::fs::write(&path, b));
+                        self.notice = Some((
+                            match saved {
+                                Ok(()) => format!("Saved {}", path.display()),
+                                Err(e) => format!("Couldn't save: {e}"),
+                            },
+                            now + 6.0,
+                        ));
+                    }
                 }
                 Act::Export => self.open_export(id),
                 Act::Delete => {
@@ -1553,7 +1626,7 @@ impl App {
                 });
                 card(ui, "KEYBOARD", &mut |ui| {
                     let groups: [(&str, &[(&str, &str)]); 4] = [
-                        ("Everywhere", &[("⌘ ,", "Open or close settings"), ("⌘ N", "New project"), ("⌘ W", "Close the project"), ("⌘ F", "Search projects")]),
+                        ("Everywhere", &[("⌘ ,", "Open or close settings"), ("⌘ N", "New project"), ("⌘ O", "Import a project"), ("⌘ W", "Close the project"), ("⌘ F", "Search projects")]),
                         (
                             "In a project",
                             &[
@@ -1807,7 +1880,7 @@ impl App {
         match c {
             Cmd::Settings => self.settings_open = true,
             Cmd::OpenProject(id) if self.editor.as_ref().is_some_and(|e| e.pid == id) => self.settings_open = false,
-            Cmd::NewProject | Cmd::OpenProject(_) if self.editor.is_some() => {
+            Cmd::NewProject | Cmd::ImportProject | Cmd::OpenProject(_) if self.editor.is_some() => {
                 self.settings_open = false;
                 if let Some(ed) = self.editor.as_mut() {
                     ed.close_req = true;
@@ -1818,6 +1891,7 @@ impl App {
                 self.settings_open = false;
                 self.new_project_dialog();
             }
+            Cmd::ImportProject => self.pick_import(now),
             Cmd::OpenProject(id) => {
                 if self.store.projects.iter().any(|p| p.id == id) {
                     self.settings_open = false;
