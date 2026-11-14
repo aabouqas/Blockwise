@@ -60,7 +60,7 @@ case "$system" in
 <dict>
   <key>CFBundleName</key><string>Blockwise</string>
   <key>CFBundleDisplayName</key><string>Blockwise</string>
-  <key>CFBundleIdentifier</key><string>io.github.aabouqas.blockwise</string>
+  <key>CFBundleIdentifier</key><string>dev.eledrissi.blockwise</string>
   <key>CFBundleExecutable</key><string>Blockwise</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
@@ -71,6 +71,31 @@ case "$system" in
   <key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSHumanReadableCopyright</key><string>Licensed under the Apache License 2.0</string>
+  <!-- .bw project files open in Blockwise -->
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeName</key><string>Blockwise project</string>
+      <key>CFBundleTypeRole</key><string>Editor</string>
+      <key>LSHandlerRank</key><string>Owner</string>
+      <key>CFBundleTypeIconFile</key><string>AppIcon</string>
+      <key>LSItemContentTypes</key><array><string>dev.eledrissi.blockwise.project</string></array>
+    </dict>
+  </array>
+  <key>UTExportedTypeDeclarations</key>
+  <array>
+    <dict>
+      <key>UTTypeIdentifier</key><string>dev.eledrissi.blockwise.project</string>
+      <key>UTTypeDescription</key><string>Blockwise project</string>
+      <key>UTTypeIconFile</key><string>AppIcon</string>
+      <key>UTTypeConformsTo</key><array><string>public.data</string></array>
+      <key>UTTypeTagSpecification</key>
+      <dict>
+        <key>public.filename-extension</key><array><string>bw</string></array>
+        <key>public.mime-type</key><array><string>application/x-blockwise-project</string></array>
+      </dict>
+    </dict>
+  </array>
 </dict>
 </plist>
 PLIST
@@ -95,9 +120,10 @@ PLIST
 Type=Application
 Name=Blockwise
 Comment=Build Android and iOS apps visually
-Exec=Blockwise
+Exec=Blockwise %f
 Icon=blockwise
 Categories=Development;
+MimeType=application/x-blockwise-project;
 DESKTOP
     legal "$dir"
     file="$out/$name.tar.gz"

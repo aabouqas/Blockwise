@@ -1,9 +1,9 @@
-//! The example apps that come with Blockwise. Each one's project and files
-//! are built into the program from examples/<key>/; the Examples page (and a
-//! first start) adds a copy to the projects. examples/export.py refreshes
-//! them from a project made in Blockwise.
+//! The example apps that come with Blockwise. Each one is built into the
+//! program from its .bw file in examples/ (the same file people download);
+//! the Examples page (and a first start) adds a copy to the projects.
+//! app/export_example.py refreshes them from a project made in Blockwise.
 
-use crate::model::{Project, Store};
+use crate::model::{read_project_bytes, Imported, Project, Store};
 
 pub struct Example {
     pub key: &'static str,
@@ -11,8 +11,8 @@ pub struct Example {
     pub blurb: &'static str,
     /// What it shows, one short line each.
     pub shows: &'static [&'static str],
-    project: &'static str,
-    files: &'static [(&'static str, &'static [u8])],
+    /// The .bw project file.
+    pub bw: &'static [u8],
     /// A phone screenshot for its card.
     pub thumb: &'static [u8],
 }
@@ -23,31 +23,33 @@ pub const EXAMPLES: &[Example] = &[
         title: "Component Tour",
         blurb: "Every native widget in one app: buttons, text fields, switches, a slider, a dropdown, a pop-up, a bottom sheet, a calendar and a list.",
         shows: &["App bar buttons", "Bottom sheet", "Pop-up dialog", "Calendar and list"],
-        project: include_str!("../../examples/component-tour/project.json"),
-        files: &[],
-        thumb: include_bytes!("../../examples/component-tour/screenshots/thumb.png"),
+        bw: include_bytes!("../../examples/component-tour.bw"),
+        thumb: include_bytes!("../../docs/images/examples/component-tour-card.png"),
     },
     Example {
         key: "brain-quiz",
         title: "Brain Quiz",
         blurb: "Ten random questions from a JSON file, a 15-second timer, green and red answers, and a best score saved on the phone.",
         shows: &["Three screens", "Timer and progress bar", "Data file", "Saved best score"],
-        project: include_str!("../../examples/brain-quiz/project.json"),
-        files: &[("questions.json", include_bytes!("../../examples/brain-quiz/assets/questions.json"))],
-        thumb: include_bytes!("../../examples/brain-quiz/screenshots/thumb.png"),
+        bw: include_bytes!("../../examples/brain-quiz.bw"),
+        thumb: include_bytes!("../../docs/images/examples/brain-quiz-card.png"),
     },
 ];
 
 impl Example {
+    fn read(&self) -> Imported {
+        read_project_bytes(self.bw, None).unwrap_or_else(|e| panic!("example {} doesn't load: {e}", self.key))
+    }
     pub fn project(&self) -> Project {
-        serde_json::from_str(self.project).unwrap_or_else(|e| panic!("example {} doesn't load: {e}", self.key))
+        self.read().project
     }
 }
 
 /// Adds a copy of the example to the projects, with its files. Returns the
 /// new project's id.
 pub fn add(store: &mut Store, ex: &Example) -> Result<u32, String> {
-    store.add_copy(ex.project(), ex.files.iter().copied())
+    let im = ex.read();
+    store.add_copy(im.project, im.files)
 }
 
 #[cfg(test)]
@@ -60,16 +62,9 @@ mod tests {
         for ex in EXAMPLES {
             let p = ex.project();
             assert!(!p.screens.is_empty(), "{}", ex.key);
-            // every file the project lists is built in
-            for f in &p.files {
-                assert!(ex.files.iter().any(|(n, _)| *n == f.file_name()), "{} misses {}", ex.key, f.file_name());
-            }
+            // every file the project lists is in its .bw
+            assert!(ex.read().missing.is_empty(), "{} misses {:?}", ex.key, ex.read().missing);
             assert!(image::load_from_memory(ex.thumb).is_ok(), "{} thumbnail", ex.key);
-            // its .bw file (to download from the repository) holds the same
-            let bw = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../examples/{0}/{0}.bw", ex.key));
-            let im = crate::model::read_project_file(&bw).unwrap_or_else(|e| panic!("{}.bw: {e}", ex.key));
-            assert_eq!(crate::model::project_snapshot(&im.project), crate::model::project_snapshot(&p), "{}.bw is out of date: run examples/export.py", ex.key);
-            assert_eq!(im.files.len(), ex.files.len(), "{}.bw files", ex.key);
             let id = add(&mut st, ex).unwrap();
             let q = st.projects.iter().find(|q| q.id == id).unwrap();
             for f in &q.files {

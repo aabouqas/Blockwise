@@ -29,6 +29,8 @@ Each project's **⋯** menu has *Project settings*, *Back up* (a `.bw` file save
 
 A **`.bw` file** is a whole project in one file: its screens, blocks and settings, and its pictures, sounds, fonts and data files. It's a zip holding `project.json` and an `assets` folder, so any zip tool can open it too.
 
+Double-click a `.bw` file and it opens in Blockwise as a new project (if a project is open, Blockwise closes it first, asking about unsaved changes). The macOS app says it opens `.bw` files; on Windows and Linux, Blockwise sets this up for you the first time it runs.
+
 **Import project…** (⌘O, under **New project**) opens a `.bw` file, or a `project.json` with its files in an `assets` folder beside it (like the examples in the repository; a zip of such a folder works too). You can also drop the file on the window. The imported project is added as a new one, with a number after its name if you already have one by that name.
 
 The **Examples** page, in the left column, has finished apps to learn from: *Component Tour* (every native widget, app bar buttons, a pop-up and a bottom sheet) and *Brain Quiz* (three screens, a timer, a JSON data file and a saved best score). **Open a copy** adds one to your projects, with its files, and opens it; change it as you like. On the first start Blockwise adds a copy of each. See them running in [examples](../examples/README.md).

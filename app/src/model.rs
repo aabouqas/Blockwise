@@ -1630,26 +1630,31 @@ pub struct Imported {
 /// project.json and its assets folder, such as a zipped example folder), or a
 /// bare project.json with its files in an `assets` folder beside it.
 pub fn read_project_file(path: &std::path::Path) -> Result<Imported, String> {
-    let not_one = || "That file isn't a Blockwise project.".to_string();
     let bytes = std::fs::read(path).map_err(|e| format!("Couldn't read the file: {e}"))?;
-    let zipped = crate::archive::is_zip(&bytes);
+    read_project_bytes(&bytes, path.parent())
+}
+
+/// `read_project_file` for bytes in hand: a .bw file's, or a project.json's
+/// whose files are looked for in `beside` (and its `assets` folder).
+pub fn read_project_bytes(bytes: &[u8], beside: Option<&std::path::Path>) -> Result<Imported, String> {
+    let not_one = || "That file isn't a Blockwise project.".to_string();
+    let zipped = crate::archive::is_zip(bytes);
     // project.json, and for a zip the files of its assets folder
     let (json, inside): (Vec<u8>, Vec<(String, Vec<u8>)>) = if zipped {
-        let mut entries = crate::archive::read(&bytes)?;
+        let mut entries = crate::archive::read(bytes)?;
         // at the top, or inside one folder
         let i = (0..entries.len()).filter(|&i| entries[i].0 == "project.json" || entries[i].0.ends_with("/project.json")).min_by_key(|&i| entries[i].0.len()).ok_or_else(not_one)?;
         let (name, json) = entries.swap_remove(i);
         let assets = format!("{}assets/", name.strip_suffix("project.json").unwrap_or_default());
         (json, entries.into_iter().filter_map(|(n, b)| Some((n.strip_prefix(&assets)?.to_string(), b))).collect())
     } else {
-        (bytes, vec![])
+        (bytes.to_vec(), vec![])
     };
     let v: serde_json::Value = serde_json::from_slice(&json).map_err(|_| not_one())?;
     if v.get("screens").is_none() {
         return Err(not_one());
     }
     let mut project: Project = serde_json::from_value(v).map_err(|e| format!("The project doesn't load: {e}"))?;
-    let dir = path.parent().unwrap_or(std::path::Path::new("."));
     let (mut files, mut missing) = (vec![], vec![]);
     for f in &project.files {
         let n = f.file_name();
@@ -1658,7 +1663,7 @@ pub fn read_project_file(path: &std::path::Path) -> Result<Imported, String> {
         } else if zipped {
             inside.iter().find(|(m, _)| *m == n).map(|(_, b)| b.clone())
         } else {
-            [dir.join("assets").join(&n), dir.join(&n)].into_iter().find_map(|p| std::fs::read(p).ok())
+            beside.and_then(|dir| [dir.join("assets").join(&n), dir.join(&n)].into_iter().find_map(|p| std::fs::read(p).ok()))
         };
         match found {
             Some(b) => files.push((n, b)),
@@ -1752,6 +1757,10 @@ pub fn leave_rule(auto_save: bool, changed: bool) -> Leave {
 
 impl Store {
     pub fn path() -> std::path::PathBuf {
+        // BLOCKWISE_DATA_DIR: another folder for the projects, for trying things out
+        if let Some(d) = std::env::var_os("BLOCKWISE_DATA_DIR") {
+            return std::path::PathBuf::from(d).join("projects.json");
+        }
         let base = dirs::data_dir().unwrap_or_else(std::env::temp_dir);
         base.join("Blockwise").join("projects.json")
     }
@@ -1860,14 +1869,19 @@ mod tests {
         assert_eq!(std::fs::read(q.file_path(&q.files[0])).unwrap(), std::fs::read(p.file_path(&p.files[0])).unwrap());
         assert_eq!(project_snapshot(&Project { id: 0, name: String::new(), app_name: String::new(), ..q.clone() }), project_snapshot(&Project { id: 0, name: String::new(), app_name: String::new(), ..p.clone() }));
 
-        // so does a zipped example folder: everything inside one folder
-        let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples/brain-quiz");
-        let entries = vec![("brain-quiz/project.json".to_string(), std::fs::read(repo.join("project.json")).unwrap()), ("brain-quiz/assets/questions.json".to_string(), std::fs::read(repo.join("assets/questions.json")).unwrap())];
+        // so does a zipped project folder: everything inside one folder
+        let unpacked = crate::archive::read(ex.bw).unwrap();
+        let entries: Vec<(String, Vec<u8>)> = unpacked.iter().map(|(n, b)| (format!("brain-quiz/{n}"), b.clone())).collect();
         std::fs::write(tmp.join("brain-quiz.zip"), crate::archive::write(&entries).unwrap()).unwrap();
         let im = read_project_file(&tmp.join("brain-quiz.zip")).unwrap();
         assert!(im.missing.is_empty() && im.files.len() == 1);
 
         // a bare project.json finds its files in assets/ beside it
+        let repo = tmp.join("brain-quiz");
+        for (n, b) in &unpacked {
+            std::fs::create_dir_all(repo.join(n).parent().unwrap()).unwrap();
+            std::fs::write(repo.join(n), b).unwrap();
+        }
         let im = read_project_file(&repo.join("project.json")).unwrap();
         assert!(im.missing.is_empty(), "{:?}", im.missing);
         assert_eq!(im.files[0].0, "questions.json");

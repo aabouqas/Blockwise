@@ -22,6 +22,7 @@ mod mcp;
 mod menu;
 mod model;
 mod native;
+mod opener;
 mod phone;
 mod runtime;
 mod templates;
@@ -54,6 +55,11 @@ fn main() -> eframe::Result<()> {
     }
     let shot = arg_after(&args, "--screenshot");
     let open = arg_after(&args, "--open");
+    // a .bw file opened from the file manager or named on the command line;
+    // when another Blockwise is open, it gets the file and this one quits
+    if shot.is_none() && !opener::start(&args) {
+        return Ok(());
+    }
 
     let mut viewport = egui::ViewportBuilder::default().with_title("Blockwise").with_inner_size([1440.0, 920.0]).with_min_inner_size([960.0, 640.0]);
     if let Some(icon) = app_icon() {

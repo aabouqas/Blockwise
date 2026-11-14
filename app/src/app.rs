@@ -292,6 +292,8 @@ pub struct App {
     menu: Option<crate::menu::AppMenu>,
     /// A menu command waiting for the open project to close first.
     after_close: Option<crate::menu::Cmd>,
+    /// Project files the system asked to open, waiting for the open project to close.
+    open_queue: Vec<std::path::PathBuf>,
     /// The settings page is showing (⌘, opens and closes it).
     settings_open: bool,
     /// The examples page is showing (under the settings page and an open project).
@@ -510,9 +512,10 @@ impl App {
             dirty = true;
         }
         let reopen = if shot.is_none() && store.settings.reopen_last { store.settings.last_project.filter(|id| store.projects.iter().any(|p| p.id == *id)) } else { None };
-        let mut app = App { store, editor: reopen.map(Editor::new), proj_dialog: None, confirm_delete: None, notice: None, dirty, last_save: 0.0, no_save: shot.is_some(), shot, frames: 0, shot_sent: false, settings_open: false, examples_open: false, search: String::new(), sort: 0, list_view: false, export: None, menu: None, after_close: None, mcp: None, mcp_err: None, mcp_shot: None };
+        let mut app = App { store, editor: reopen.map(Editor::new), proj_dialog: None, confirm_delete: None, notice: None, dirty, last_save: 0.0, no_save: shot.is_some(), shot, frames: 0, shot_sent: false, settings_open: false, examples_open: false, search: String::new(), sort: 0, list_view: false, export: None, menu: None, after_close: None, open_queue: Vec::new(), mcp: None, mcp_err: None, mcp_shot: None };
         if app.shot.is_none() {
             app.menu = crate::menu::AppMenu::install(&cc.egui_ctx);
+            crate::opener::set_ctx(&cc.egui_ctx);
         }
         if let Some(o) = open {
             let pid = app.store.projects[0].id;
@@ -4370,6 +4373,28 @@ impl eframe::App for App {
                 self.projects_page(ui);
             }
         });
+        // project files from the file manager: close the open project first
+        // (asking about unsaved changes), then import them
+        let arrived = crate::opener::take();
+        if !arrived.is_empty() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+            if let Some(ed) = self.editor.as_mut() {
+                ed.close_req = true;
+            }
+            self.open_queue.extend(arrived);
+        }
+        if !self.open_queue.is_empty() {
+            match &self.editor {
+                None => {
+                    let now = ctx.input(|i| i.time);
+                    for f in std::mem::take(&mut self.open_queue) {
+                        self.import_project(&f, now);
+                    }
+                }
+                Some(ed) if !ed.quit_ask && !ed.close_req => self.open_queue.clear(),
+                Some(_) => {}
+            }
+        }
         // a menu command that waited for the project to close: run it now, or
         // drop it when the person stayed in the project
         if let Some(c) = self.after_close {
