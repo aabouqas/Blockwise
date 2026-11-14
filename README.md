@@ -30,7 +30,7 @@ Blockwise comes with example apps: open **Examples** in the left column and pres
 | :---: | :---: |
 | ![Component Tour on Android and iPhone](docs/images/examples/component-tour.gif) | ![Brain Quiz on Android and iPhone](docs/images/examples/brain-quiz.gif) |
 | Every native widget in one app, with app bar buttons, a pop-up, a bottom sheet, a calendar and a list. | Ten questions from a JSON file, a timer, green and red answers, and a saved best score. |
-| [Project (.bw)](https://github.com/aabouqas/Blockwise/raw/main/examples/component-tour.bw) · [Android app](https://github.com/aabouqas/Blockwise/releases/latest/download/component-tour.apk) | [Project (.bw)](https://github.com/aabouqas/Blockwise/raw/main/examples/brain-quiz.bw) · [Android app](https://github.com/aabouqas/Blockwise/releases/latest/download/brain-quiz.apk) |
+| [Project (.bw)](https://github.com/aabouqas/Blockwise/raw/main/examples/component-tour.bw) · [Android app](https://github.com/aabouqas/Blockwise/raw/main/examples/component-tour.apk) | [Project (.bw)](https://github.com/aabouqas/Blockwise/raw/main/examples/brain-quiz.bw) · [Android app](https://github.com/aabouqas/Blockwise/raw/main/examples/brain-quiz.apk) |
 
 Each one is also a `.bw` file, a whole project in one file: download it and double-click it to open it in Blockwise. More about them in [examples](examples/README.md).
 
