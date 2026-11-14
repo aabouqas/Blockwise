@@ -37,6 +37,25 @@ An app has one or more screens. The picker at the top left shows the current one
 - The **pencil** beside a screen renames it. Blocks that open that screen follow the new name.
 - The **x** beside a screen deletes it, after asking. The first screen, where the app starts, can't be deleted.
 
+### The app bar
+
+The bar at the top of a screen, with its title. Click an empty part of the phone (so no widget is selected) and the inspector shows the screen's settings:
+
+- **Title**: what the bar says. Left empty, it shows the app's name. The *set screen title* block changes it while the app runs.
+- **App bar**: untick **Show** for a screen without a bar, such as a game or a splash screen. It then starts right under the status bar.
+- **Bar colour** and **Title colour**: *default* is each phone's own look: the theme colour with a white title on Android, the system bar on iPhone. A title colour left as default is white or black, whichever reads on the bar. On Android the status bar takes a darker shade of the bar.
+- **Back button**: a screen opened from another has a back arrow in its bar. Untick it to leave the arrow out (the phone's own back still works).
+
+On iPhone the back button is the system's, so it keeps its own colour.
+
+**App bar buttons** are icons on the right of the bar, such as search, add or share. Press **+ Add button** under the screen's settings, pick an icon and give it a label (screen readers read it; Android shows it on a long press). Each button has an id, like `searchButton`. In the **Logic** tab, **Add event** lists *When searchButton is clicked*: put its blocks there. On Android the icons take the title's colour; on iPhone they sit together in the bar's glass button.
+
+### Bottom sheets
+
+Any screen but the first can open as a bottom sheet: a panel that slides up over the screen that opens it, which stays dimmed above. In the screen's settings set **Opens as** to *Bottom sheet, half* (half the phone's height) or *Bottom sheet, tall* (nearly all of it). Design it like any screen; a sheet has no app bar.
+
+Open it with the *open screen* block. *Close this screen* closes it, and so does a tap above it, the phone's back, or (on iPhone) pulling it down. Use it for a choice, a short form or details about an item; to send back what was picked, save it with a *saved data* component and read it when the screen below needs it.
+
 ## The designer
 
 The **Design** tab (⌘1) has three parts:

@@ -711,6 +711,156 @@ pub struct Screen {
     pub events: Vec<Event>,
     #[serde(default)]
     pub title: String,
+    #[serde(default)]
+    pub app_bar: AppBar,
+    /// Shown as a bottom sheet over the screen that opens it (never the
+    /// first screen, which the app starts on).
+    #[serde(default)]
+    pub sheet: Sheet,
+}
+
+/// How a screen opens: a whole page, or a bottom sheet of half or nearly
+/// all of the phone's height.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum Sheet {
+    #[default]
+    No,
+    Half,
+    Full,
+}
+
+impl Sheet {
+    /// The part of the phone's height the sheet takes (iPhone: the medium
+    /// and large detents).
+    pub fn height(self) -> f32 {
+        match self {
+            Sheet::No => 1.0,
+            Sheet::Half => 0.5,
+            Sheet::Full => 0.92,
+        }
+    }
+}
+
+/// The room above a sheet's content, where its handle sits (dp / pt).
+pub const SHEET_TOP: f32 = 20.0;
+
+/// How a screen's app bar looks. Zero colours mean the phone's own: the
+/// theme colour with a white title on Android, the system bar on iPhone.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(default)]
+pub struct AppBar {
+    /// No app bar: the screen starts right under the status bar.
+    pub hidden: bool,
+    pub color: u32,
+    /// Zero: white or black, whichever reads on the bar.
+    pub title_color: u32,
+    /// No back arrow, even on a screen opened from another.
+    pub no_back: bool,
+    /// Icon buttons on the right of the bar; each has its own onClick event.
+    pub actions: Vec<BarAction>,
+}
+
+/// One icon button in the app bar. `id` names it in events, like a widget's.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(default)]
+pub struct BarAction {
+    pub id: String,
+    /// A name from BAR_ICONS.
+    pub icon: String,
+    /// Read aloud by screen readers; Android shows it on a long press.
+    pub label: String,
+}
+
+/// The app bar's icons: name, Lucide character (the preview, and Android's
+/// icon drawn from it), SF Symbol (iPhone).
+pub const BAR_ICONS: &[(&str, char, &str)] = &[
+    ("search", '\u{e155}', "magnifyingglass"),
+    ("add", '\u{e141}', "plus"),
+    ("edit", '\u{e1f9}', "pencil"),
+    ("delete", '\u{e18e}', "trash"),
+    ("share", '\u{e159}', "square.and.arrow.up"),
+    ("done", '\u{e070}', "checkmark"),
+    ("close", '\u{e1b2}', "xmark"),
+    ("refresh", '\u{e149}', "arrow.clockwise"),
+    ("settings", '\u{e158}', "gearshape"),
+    ("info", '\u{e0fe}', "info.circle"),
+    ("help", '\u{e082}', "questionmark.circle"),
+    ("more", '\u{e0bb}', "ellipsis"),
+    ("menu", '\u{e119}', "line.3.horizontal"),
+    ("filter", '\u{e0d5}', "line.3.horizontal.decrease"),
+    ("favorite", '\u{e0f5}', "heart"),
+    ("star", '\u{e17a}', "star"),
+    ("bookmark", '\u{e064}', "bookmark"),
+    ("notifications", '\u{e05d}', "bell"),
+    ("person", '\u{e19f}', "person"),
+    ("home", '\u{e0f8}', "house"),
+    ("cart", '\u{e160}', "cart"),
+    ("camera", '\u{e068}', "camera"),
+    ("send", '\u{e156}', "paperplane"),
+    ("mail", '\u{e113}', "envelope"),
+    ("phone", '\u{e137}', "phone"),
+    ("calendar", '\u{e067}', "calendar"),
+    ("download", '\u{e0b6}', "square.and.arrow.down"),
+    ("logout", '\u{e112}', "rectangle.portrait.and.arrow.right"),
+];
+
+/// A bar icon's Lucide character and SF Symbol; unknown names get "more".
+pub fn bar_icon(name: &str) -> (char, &'static str) {
+    let (_, c, sf) = BAR_ICONS.iter().find(|(n, _, _)| *n == name).unwrap_or(&BAR_ICONS[11]);
+    (*c, sf)
+}
+
+/// Android's app bar and status bar colours when none is picked.
+pub const ANDROID_BAR: u32 = 0xFF5B_5BD6;
+pub const ANDROID_STATUS: u32 = 0xFF4A_4AC4;
+/// iPhone's navigation bar, its title and its buttons, when none is picked.
+pub const IOS_BAR: u32 = 0xFFF9_F9F9;
+pub const IOS_INK: u32 = 0xFF11_1111;
+
+/// True when black text reads better than white on this colour.
+pub fn is_light(argb: u32) -> bool {
+    let (r, g, b) = ((argb >> 16) & 0xFF, (argb >> 8) & 0xFF, argb & 0xFF);
+    (r * 299 + g * 587 + b * 114) / 1000 > 140
+}
+
+impl AppBar {
+    pub fn bar(&self, iphone: bool) -> u32 {
+        match (self.color, iphone) {
+            (0, true) => IOS_BAR,
+            (0, false) => ANDROID_BAR,
+            (c, _) => c | 0xFF00_0000,
+        }
+    }
+    pub fn title(&self, iphone: bool) -> u32 {
+        if self.title_color != 0 {
+            return self.title_color | 0xFF00_0000;
+        }
+        if self.color == 0 {
+            return if iphone { IOS_INK } else { 0xFFFF_FFFF };
+        }
+        if is_light(self.bar(iphone)) { 0xFF11_1111 } else { 0xFFFF_FFFF }
+    }
+    /// The back arrow's colour: the title's on Android; on iPhone the
+    /// system's, dark or light by the bar.
+    pub fn back(&self, iphone: bool) -> u32 {
+        if !iphone {
+            self.title(false)
+        } else if is_light(self.bar(true)) {
+            IOS_INK
+        } else {
+            0xFFFF_FFFF
+        }
+    }
+    /// Android's status bar: a darker shade of the app bar.
+    pub fn status(&self) -> u32 {
+        if self.color == 0 {
+            return ANDROID_STATUS;
+        }
+        let c = self.bar(false);
+        let dim = |sh: u32| (((c >> sh) & 0xFF) * 85 / 100) << sh;
+        0xFF00_0000 | dim(16) | dim(8) | dim(0)
+    }
 }
 
 impl Screen {
@@ -723,6 +873,8 @@ impl Screen {
             components: vec![],
             events: vec![Event { target: String::new(), name: "onCreate".into(), blocks: vec![], loose: vec![], params: vec![] }],
             title: String::new(),
+            app_bar: AppBar::default(),
+            sheet: Sheet::No,
         }
     }
     pub fn activity_name(&self) -> String {
@@ -781,6 +933,18 @@ impl Screen {
             || self.vars.iter().any(|v| v.name == name)
             || self.lists.iter().any(|l| l.name == name)
             || self.components.iter().any(|c| c.name == name)
+            || self.app_bar.actions.iter().any(|a| a.id == name)
+    }
+    pub fn action(&self, id: &str) -> Option<&BarAction> {
+        self.app_bar.actions.iter().find(|a| a.id == id)
+    }
+    /// A free id for a new app bar button: its icon's name + "Button", numbered.
+    pub fn next_action_id(&self, icon: &str) -> String {
+        let base = format!("{icon}Button");
+        if !self.name_taken(&base) {
+            return base;
+        }
+        (2..).map(|n| format!("{base}{n}")).find(|n| !self.name_taken(n)).unwrap()
     }
     pub fn max_block_id(&self) -> u64 {
         self.events.iter().map(|e| e.max_id()).max().unwrap_or(0)
@@ -1085,6 +1249,10 @@ pub fn file_base_name(stem: &str) -> String {
 }
 
 impl Project {
+    /// How a screen opens; the first screen is always a page.
+    pub fn sheet_of(&self, s: &Screen) -> Sheet {
+        if self.screens.first().is_some_and(|f| f.name == s.name) { Sheet::No } else { s.sheet }
+    }
     pub fn files_dir(&self) -> std::path::PathBuf {
         files_root().join(self.id.to_string())
     }

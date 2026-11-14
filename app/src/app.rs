@@ -2647,7 +2647,13 @@ fn events_tab(ui: &mut Ui, ed: &mut Editor, project: &mut Project) -> bool {
             choices.push((String::new(), "onBackPressed".into(), "When back is pressed".into()));
         }
         // the widget's kind too, so "button" or "text field" finds its events
-        let mut kinds: Vec<&str> = vec![""];
+        let mut kinds: Vec<&str> = vec![""; choices.len()];
+        for a in &s.app_bar.actions {
+            if !s.app_bar.hidden && !s.events.iter().any(|e| e.target == a.id && e.name == "onClick") {
+                choices.push((a.id.clone(), "onClick".into(), format!("When {} {}", a.id, event_words("onClick"))));
+                kinds.push("app bar button");
+            }
+        }
         for w in &s.widgets {
             for ev in w.kind.events() {
                 if !s.events.iter().any(|e| e.target == w.id && e.name == *ev) {
@@ -3818,7 +3824,27 @@ pub(crate) fn run_phone(ui: &mut Ui, rt: &mut Runtime, now: f64, area: &str) -> 
     let (_, t) = phone::fit_area(ui.ctx(), area, canvas, total, |ui| {
         ui.vertical(|ui| {
             let title = rt.title.clone();
-            let mut shell = phone::shell_begin(ui, &title);
+            let look = rt.screen().app_bar.clone();
+            let sheet = rt.project.sheet_of(rt.screen());
+            let below = match (sheet, rt.back_stack.last()) {
+                (Sheet::No, _) | (_, None) => None,
+                (_, Some(&i)) => rt.project.screens.get(i).cloned(),
+            };
+            let mut shell = match &below {
+                // a bottom sheet over the screen that opened it, dimmed
+                Some(b) => {
+                    let t = if b.title.is_empty() { rt.project.app_name.clone() } else { b.title.clone() };
+                    let mut sh = phone::shell_begin(ui, &t, &b.app_bar, rt.back_stack.len() > 1);
+                    let files: std::collections::HashMap<String, std::path::PathBuf> = rt.project.file_paths().into_iter().map(|(f, p)| (f.name.clone(), p)).collect();
+                    phone::draw_still(ui, sh.content, b, &files);
+                    let dim = phone::sheet_begin(ui, &mut sh, sheet);
+                    if ui.interact(dim, Id::new("sheet_dim"), Sense::click()).clicked() {
+                        back = true;
+                    }
+                    sh
+                }
+                None => phone::shell_begin(ui, &title, &look, !rt.back_stack.is_empty()),
+            };
             let content = shell.content;
             if rt.finished {
                 ui.painter().rect_filled(content, 0.0, Color32::from_gray(245));
@@ -3846,7 +3872,7 @@ pub(crate) fn run_phone(ui: &mut Ui, rt: &mut Runtime, now: f64, area: &str) -> 
                 shell.bottom = phone::bottom_color(&scr, &rt.widgets);
                 {
                     let files: std::collections::HashMap<String, std::path::PathBuf> = rt.project.file_paths().into_iter().map(|(f, p)| (f.name.clone(), p)).collect();
-                    let mut cx = phone::Ctx { screen: &scr, states: &mut rt.widgets, mode: Mode::Run, selected: None, dragging: None, out: &mut out, time: now, files: &files };
+                    let mut cx = phone::Ctx { screen: &scr, states: &mut rt.widgets, mode: Mode::Run, selected: None, dragging: None, out: &mut out, files: &files };
                     phone::draw_screen(ui, content, &mut cx);
                 }
                 // toasts
@@ -3897,6 +3923,19 @@ pub(crate) fn run_phone(ui: &mut Ui, rt: &mut Runtime, now: f64, area: &str) -> 
                 ui.painter().text(r.center(), Align2::CENTER_CENTER, format!("{}  Paused before: {}", ic::CIRCLE_PAUSE, short(&p.text, 34)), FontId::proportional(13.0), INK);
                 // taps wait while paused
                 let _ = ui.interact(content, Id::new("paused_block"), Sense::click());
+            }
+            // the app bar's buttons and back arrow
+            if !rt.finished && rt.crash_screen().is_none() {
+                for (id, r) in &shell.actions {
+                    if ui.interact(*r, Id::new(("bar_action", id)), Sense::click()).on_hover_cursor(CursorIcon::PointingHand).clicked() {
+                        out.events.push((id.clone(), "onClick".into(), Default::default()));
+                    }
+                }
+                if let Some(r) = shell.back {
+                    if ui.interact(r, Id::new("bar_back"), Sense::click()).on_hover_cursor(CursorIcon::PointingHand).clicked() {
+                        back = true;
+                    }
+                }
             }
             phone::shell_end(ui, &shell);
             ui.add_space(6.0);

@@ -460,3 +460,42 @@ mod tests {
         }
     }
 }
+
+// ------------------------------------------------------------ app bar icons
+
+/// A Lucide icon as an Android vector drawable, 24 dp, white (tinted where
+/// it's used). Lucide's em box is its 24-unit grid, y up.
+pub fn android_vector(c: char) -> String {
+    use ab_glyph::{Font, OutlineCurve, Point};
+    let mut d = String::new();
+    if let Ok(font) = ab_glyph::FontRef::try_from_slice(LUCIDE_TTF) {
+        let k = 24.0 / font.units_per_em().unwrap_or(1000.0);
+        let pt = |p: Point| format!("{:.2},{:.2}", p.x * k, 24.0 - p.y * k);
+        let mut last: Option<Point> = None;
+        if let Some(o) = font.outline(font.glyph_id(c)) {
+            for curve in &o.curves {
+                let (start, end) = match curve {
+                    OutlineCurve::Line(a, b) => (*a, *b),
+                    OutlineCurve::Quad(a, _, b) => (*a, *b),
+                    OutlineCurve::Cubic(a, _, _, b) => (*a, *b),
+                };
+                if last.map_or(true, |l| (l.x - start.x).abs() > 0.01 || (l.y - start.y).abs() > 0.01) {
+                    if last.is_some() {
+                        d.push('Z');
+                    }
+                    d.push_str(&format!("M{}", pt(start)));
+                }
+                match curve {
+                    OutlineCurve::Line(_, b) => d.push_str(&format!("L{}", pt(*b))),
+                    OutlineCurve::Quad(_, c1, b) => d.push_str(&format!("Q{} {}", pt(*c1), pt(*b))),
+                    OutlineCurve::Cubic(_, c1, c2, b) => d.push_str(&format!("C{} {} {}", pt(*c1), pt(*c2), pt(*b))),
+                }
+                last = Some(end);
+            }
+            if last.is_some() {
+                d.push('Z');
+            }
+        }
+    }
+    format!("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<vector xmlns:android=\"http://schemas.android.com/apk/res/android\" android:width=\"24dp\" android:height=\"24dp\" android:viewportWidth=\"24\" android:viewportHeight=\"24\">\n\t<path android:fillColor=\"#FFFFFFFF\" android:pathData=\"{d}\"/>\n</vector>\n")
+}

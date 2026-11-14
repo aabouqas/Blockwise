@@ -22,7 +22,7 @@ New fields must load from older files, so every field added after the first vers
 
 ## Screens and widgets
 
-A `Screen` has a `name` (`"main"` becomes `main.xml` and `MainActivity.kt`), an optional title, and five lists.
+A `Screen` has a `name` (`"main"` becomes `main.xml` and `MainActivity.kt`), an optional title, an `app_bar` (`AppBar`: hidden, bar and title colours where 0 means the phone's own, no back arrow, and `actions`: icon buttons whose `id` is an event target like a widget's), `sheet` (`Sheet::No`, `Half` or `Full`: opens as a bottom sheet; `Project::sheet_of` keeps the first screen a page), and five lists.
 
 **Widgets are a flat list.** Each `Widget` has an `id` (`button1`) and a `parent` id (`"root"` for the top level). The order of the list is the order children appear in their parent. Helpers on `Screen`: `widget(id)`, `children(parent)`, `is_descendant`, `remove_widget` (removes the subtree), `next_widget_id(kind)`.
 

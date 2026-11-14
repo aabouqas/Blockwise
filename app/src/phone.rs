@@ -259,6 +259,11 @@ pub struct Shell {
     /// The colour under the home bar: the screen's own background
     /// (see `bottom_color`), white unless the caller says otherwise.
     pub bottom: Color32,
+    /// The app bar's buttons where they're drawn, to tap while the app runs.
+    pub actions: Vec<(String, Rect)>,
+    pub back: Option<Rect>,
+    /// A bottom sheet's panel (`sheet_begin`).
+    sheet: Option<Rect>,
     screen: Rect,
     kind: ShellKind,
 }
@@ -304,33 +309,70 @@ pub fn shell_size(ctx: &Context) -> Vec2 {
 }
 
 /// Start drawing the phone the settings pick (the iPhone picture or the
-/// Pixel). Draw the screen into `content`, then call `shell_end`.
-pub fn shell_begin(ui: &mut Ui, title: &str) -> Shell {
+/// Pixel), with the screen's app bar: its title, its look and, when `back`,
+/// a back button (the screen was opened from another). Draw the screen into
+/// `content`, then call `shell_end`.
+pub fn shell_begin(ui: &mut Ui, title: &str, look: &AppBar, back: bool) -> Shell {
+    let back = back && !look.no_back;
     if preview_iphone() {
         let Some(a) = iphone_art(ui.ctx()) else {
             let (content, resp) = phone_frame(ui, title, vec2(PHONE_W, PHONE_H));
-            return Shell { content, outer: resp.rect, bottom: Color32::WHITE, screen: content, kind: ShellKind::Plain };
+            return Shell { content, outer: resp.rect, bottom: Color32::WHITE, actions: vec![], back: None, sheet: None, screen: content, kind: ShellKind::Plain };
         };
         let k = PHONE_W / a.hole.width();
         let (outer, _) = ui.allocate_exact_size(a.size * k, Sense::hover());
         let hole = Rect::from_min_size(outer.min + a.hole.min.to_vec2() * k, a.hole.size() * k);
         let p = ui.painter();
         fill_screen(p, &a, hole, hole, Color32::WHITE);
-        let nav = Rect::from_min_size(hole.min + vec2(0.0, IOS_STATUS), vec2(hole.width(), IOS_NAV));
-        fill_screen(p, &a, hole, Rect::from_min_max(hole.min, nav.max), Color32::from_rgb(0xF9, 0xF9, 0xF9));
-        // status bar: time on the left, battery on the right, beside the camera cut-out
         let status = Rect::from_min_size(hole.min, vec2(hole.width(), IOS_STATUS));
-        let ink = Color32::from_rgb(0x11, 0x11, 0x11);
+        let nav = Rect::from_min_size(status.left_bottom(), vec2(hole.width(), if look.hidden { 0.0 } else { IOS_NAV }));
+        let bar = if look.hidden { 0xFFFF_FFFF } else { look.bar(true) };
+        if !look.hidden {
+            fill_screen(p, &a, hole, Rect::from_min_max(hole.min, nav.max), c32(bar));
+        }
+        // status bar: time on the left, battery on the right, beside the camera cut-out
+        let ink = if is_light(bar) { Color32::from_rgb(0x11, 0x11, 0x11) } else { Color32::WHITE };
+        let rim = if is_light(bar) { Color32::from_gray(150) } else { Color32::from_gray(200) };
         p.text(pos2(status.left() + hole.width() * 0.16, status.center().y + 2.0), Align2::CENTER_CENTER, "9:41", FontId::proportional(15.0), ink);
         let bat = Rect::from_center_size(pos2(status.right() - hole.width() * 0.13, status.center().y + 2.0), vec2(22.0, 11.0));
-        p.rect_stroke(bat, 3.0, Stroke::new(1.0_f32, Color32::from_gray(150)));
+        p.rect_stroke(bat, 3.0, Stroke::new(1.0_f32, rim));
         p.rect_filled(bat.shrink(2.0), 1.5, ink);
-        p.rect_filled(Rect::from_min_size(pos2(bat.right() + 1.0, bat.center().y - 2.0), vec2(1.5, 4.0)), 0.5, Color32::from_gray(150));
-        // navigation bar with the title in the middle
-        p.text(nav.center(), Align2::CENTER_CENTER, title, FontId::proportional(17.0), ink);
-        p.line_segment([nav.left_bottom(), nav.right_bottom()], Stroke::new(0.5_f32, Color32::from_gray(200)));
-        let content = Rect::from_min_max(nav.left_bottom() + vec2(0.0, 0.5), pos2(hole.right(), hole.bottom() - IOS_HOME));
-        return Shell { content, outer, bottom: Color32::WHITE, screen: hole, kind: ShellKind::Iphone(a) };
+        p.rect_filled(Rect::from_min_size(pos2(bat.right() + 1.0, bat.center().y - 2.0), vec2(1.5, 4.0)), 0.5, rim);
+        let mut top = nav.bottom();
+        let (mut actions, mut back_rect) = (vec![], None);
+        if !look.hidden {
+            // navigation bar with the title in the middle
+            p.text(nav.center(), Align2::CENTER_CENTER, title, FontId::proportional(17.0), c32(look.title(true)));
+            let (fill, edge) = if is_light(bar) { (Color32::from_white_alpha(235), Color32::from_black_alpha(25)) } else { (Color32::from_white_alpha(40), Color32::from_white_alpha(60)) };
+            if !look.actions.is_empty() {
+                // the buttons share one glass capsule on the right
+                let w = 44.0 * look.actions.len() as f32;
+                let pill = Rect::from_min_size(pos2(nav.right() - 16.0 - w, nav.center().y - 22.0), vec2(w, 44.0));
+                p.rect(pill, 22.0, fill, Stroke::new(0.5_f32, edge));
+                let ink = if look.color != 0 || look.title_color != 0 { c32(look.title(true)) } else { c32(look.back(true)) };
+                for (i, a) in look.actions.iter().enumerate() {
+                    let r = Rect::from_min_size(pill.min + vec2(44.0 * i as f32, 0.0), vec2(44.0, 44.0));
+                    p.text(r.center(), Align2::CENTER_CENTER, bar_icon(&a.icon).0.to_string(), FontId::proportional(20.0), ink);
+                    actions.push((a.id.clone(), r));
+                }
+            }
+            if back {
+                // the round glass back button
+                let ring = Rect::from_center_size(pos2(nav.left() + 16.0 + 22.0, nav.center().y), vec2(44.0, 44.0));
+                back_rect = Some(ring);
+                p.circle(ring.center(), 22.0, fill, Stroke::new(0.5_f32, edge));
+                let c = ring.center() + vec2(-3.5, 0.0);
+                let s = Stroke::new(2.4_f32, c32(look.back(true)));
+                p.line_segment([c + vec2(6.0, -8.0), c], s);
+                p.line_segment([c, c + vec2(6.0, 8.0)], s);
+            }
+            if look.color == 0 {
+                p.line_segment([nav.left_bottom(), nav.right_bottom()], Stroke::new(0.5_f32, Color32::from_gray(200)));
+                top += 0.5;
+            }
+        }
+        let content = Rect::from_min_max(pos2(hole.left(), top), pos2(hole.right(), hole.bottom() - IOS_HOME));
+        return Shell { content, outer, bottom: Color32::WHITE, actions, back: back_rect, sheet: None, screen: hole, kind: ShellKind::Iphone(a) };
     }
 
     let (outer, _) = ui.allocate_exact_size(shell_size(ui.ctx()), Sense::hover());
@@ -353,21 +395,79 @@ pub fn shell_begin(ui: &mut Ui, title: &str) -> Shell {
     let screen = glass.shrink(pixel::BEZEL);
     let r = pixel::SCREEN_R;
     fill_rounded(p, screen, [r; 4], Color32::WHITE);
-    // status bar in the dark theme colour, app bar in the theme colour
+    // status bar in a darker shade of the app bar's colour
     let status = Rect::from_min_size(screen.min, vec2(screen.width(), pixel::STATUS));
-    let bar = Rect::from_min_size(status.left_bottom(), vec2(screen.width(), pixel::BAR));
-    fill_rounded(p, status, [r, r, 0.0, 0.0], PRIMARY_DARK);
-    p.rect_filled(bar, 0.0, PRIMARY);
+    let bar = Rect::from_min_size(status.left_bottom(), vec2(screen.width(), if look.hidden { 0.0 } else { pixel::BAR }));
+    fill_rounded(p, status, [r, r, 0.0, 0.0], c32(look.status()));
+    let icons = if is_light(look.status()) { Color32::from_rgb(0x11, 0x11, 0x11) } else { Color32::WHITE };
     let y = status.center().y + 1.0;
-    p.text(pos2(status.left() + 24.0, y), Align2::LEFT_CENTER, "12:00", FontId::proportional(13.0), Color32::WHITE);
+    p.text(pos2(status.left() + 24.0, y), Align2::LEFT_CENTER, "12:00", FontId::proportional(13.0), icons);
     let bat = Rect::from_center_size(pos2(status.right() - 28.0, y), vec2(7.5, 13.0));
-    p.rect_filled(bat, 1.5, Color32::WHITE);
-    p.rect_filled(Rect::from_center_size(pos2(bat.center().x, bat.top() - 1.0), vec2(3.5, 2.0)), 0.5, Color32::WHITE);
+    p.rect_filled(bat, 1.5, icons);
+    p.rect_filled(Rect::from_center_size(pos2(bat.center().x, bat.top() - 1.0), vec2(3.5, 2.0)), 0.5, icons);
     let sig = pos2(bat.left() - 7.0, bat.bottom());
-    p.add(Shape::convex_polygon(vec![sig, sig + vec2(-11.0, 0.0), sig + vec2(0.0, -11.0)], Color32::WHITE, Stroke::NONE));
-    p.text(bar.left_center() + vec2(16.0, 0.0), Align2::LEFT_CENTER, title, FontId::proportional(19.0), Color32::WHITE);
+    p.add(Shape::convex_polygon(vec![sig, sig + vec2(-11.0, 0.0), sig + vec2(0.0, -11.0)], icons, Stroke::NONE));
+    let (mut actions, mut back_rect) = (vec![], None);
+    if !look.hidden {
+        p.rect_filled(bar, 0.0, c32(look.bar(false)));
+        let ink = c32(look.title(false));
+        let mut x = 16.0;
+        // icon buttons from the right, 48 dp each
+        let n = look.actions.len() as f32;
+        for (i, a) in look.actions.iter().enumerate() {
+            let r = Rect::from_min_size(pos2(bar.right() - 4.0 - 48.0 * (n - i as f32), bar.top() + (bar.height() - 48.0) / 2.0), vec2(48.0, 48.0));
+            p.text(r.center(), Align2::CENTER_CENTER, bar_icon(&a.icon).0.to_string(), FontId::proportional(22.0), ink);
+            actions.push((a.id.clone(), r));
+        }
+        if back {
+            back_rect = Some(Rect::from_center_size(bar.left_center() + vec2(28.0, 0.0), vec2(48.0, 48.0)));
+            // the up arrow, then the title where Material puts it
+            let c = bar.left_center() + vec2(16.0 + 12.0, 0.0);
+            let s = Stroke::new(2.0_f32, ink);
+            p.line_segment([c + vec2(-8.0, 0.0), c + vec2(8.0, 0.0)], s);
+            p.line_segment([c + vec2(-8.0, 0.0), c + vec2(-1.0, -7.0)], s);
+            p.line_segment([c + vec2(-8.0, 0.0), c + vec2(-1.0, 7.0)], s);
+            x = 72.0;
+        }
+        p.text(bar.left_center() + vec2(x, 0.0), Align2::LEFT_CENTER, title, FontId::proportional(19.0), ink);
+    }
     let content = Rect::from_min_max(bar.left_bottom(), pos2(screen.right(), screen.bottom() - pixel::GESTURE));
-    Shell { content, outer, bottom: Color32::WHITE, screen, kind: ShellKind::Pixel }
+    Shell { content, outer, bottom: Color32::WHITE, actions, back: back_rect, sheet: None, screen, kind: ShellKind::Pixel }
+}
+
+/// Lay a bottom sheet over what's drawn on the phone: dim it, draw the
+/// sheet with its handle, and move `content` into the sheet. Returns the
+/// dimmed part above the sheet (a tap there closes it).
+pub fn sheet_begin(ui: &Ui, sh: &mut Shell, sheet: Sheet) -> Rect {
+    let p = ui.painter();
+    let scr = sh.screen;
+    let dim = Color32::from_black_alpha(82);
+    let iphone = matches!(sh.kind, ShellKind::Iphone(_));
+    match &sh.kind {
+        ShellKind::Iphone(a) => fill_screen(p, a, scr, scr, dim),
+        _ => fill_rounded(p, scr, [pixel::SCREEN_R; 4], dim),
+    }
+    let h = scr.height() * sheet.height();
+    let (panel, corners) = if iphone && sheet == Sheet::Half {
+        // iPhone's half sheet floats in from the sides and the bottom
+        (Rect::from_min_max(pos2(scr.left() + 8.0, scr.bottom() - 8.0 - h), pos2(scr.right() - 8.0, scr.bottom() - 8.0)), [36.0; 4])
+    } else if iphone {
+        (Rect::from_min_max(pos2(scr.left(), scr.bottom() - h), scr.max), [38.0, 38.0, 50.0, 50.0])
+    } else {
+        (Rect::from_min_max(pos2(scr.left(), scr.bottom() - h), scr.max), [24.0, 24.0, pixel::SCREEN_R, pixel::SCREEN_R])
+    };
+    fill_rounded(p, panel, corners, Color32::WHITE);
+    if iphone {
+        p.rect_filled(Rect::from_center_size(pos2(panel.center().x, panel.top() + 7.5), vec2(36.0, 5.0)), 2.5, Color32::from_gray(200));
+    } else {
+        p.rect_filled(Rect::from_center_size(pos2(panel.center().x, panel.top() + 10.0), vec2(32.0, 4.0)), 2.0, Color32::from_rgb(0x79, 0x74, 0x7E));
+    }
+    let bottom = if iphone && sheet == Sheet::Half { panel.bottom() - 16.0 } else { sh.content.bottom() };
+    sh.content = Rect::from_min_max(pos2(panel.left(), panel.top() + SHEET_TOP), pos2(panel.right(), bottom));
+    sh.sheet = Some(panel);
+    sh.actions.clear();
+    sh.back = None;
+    Rect::from_min_max(scr.min, pos2(scr.right(), panel.top()))
 }
 
 /// A rounded rectangle as a convex outline, each corner with its own radius.
@@ -413,12 +513,14 @@ pub fn bottom_color(screen: &Screen, states: &HashMap<String, WState>) -> Color3
 pub fn shell_end(ui: &Ui, sh: &Shell) {
     let p = ui.painter();
     let strip = Rect::from_min_max(pos2(sh.screen.left(), sh.content.bottom()), sh.screen.max);
-    let [r, g, b, _] = sh.bottom.to_array();
-    let light = (r as u32 * 299 + g as u32 * 587 + b as u32 * 114) / 1000 > 140;
+    let light = is_light(argb(sh.bottom));
     let pill = if light { Color32::from_rgb(0x11, 0x11, 0x11) } else { Color32::from_rgb(0xF2, 0xF2, 0xF2) };
     match &sh.kind {
         ShellKind::Iphone(a) => {
-            fill_screen(p, a, sh.screen, strip, sh.bottom);
+            // a sheet in from the sides leaves the dim showing beside it
+            if !sh.sheet.is_some_and(|r| r.left() > sh.screen.left() + 1.0) {
+                fill_screen(p, a, sh.screen, strip, sh.bottom);
+            }
             p.image(a.tex.id(), sh.outer, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
             p.rect_filled(Rect::from_center_size(pos2(sh.screen.center().x, sh.screen.bottom() - 10.0), vec2(sh.screen.width() * 0.34, 5.0)), 2.5, pill);
         }
@@ -530,6 +632,16 @@ fn galley(ui: &Ui, text: &str, f: FontId, c: Color32) -> std::sync::Arc<Galley> 
     ui.painter().layout_no_wrap(text.to_string(), f, c)
 }
 
+/// Text that wraps at the room it has, as a phone's text widget does.
+fn galley_wrapped(ui: &Ui, text: &str, f: FontId, c: Color32) -> std::sync::Arc<Galley> {
+    let room = ui.available_width();
+    if room.is_finite() && room > 1.0 {
+        ui.painter().layout(text.to_string(), f, c, room)
+    } else {
+        galley(ui, text, f, c)
+    }
+}
+
 pub struct Ctx<'a> {
     pub screen: &'a Screen,
     pub states: &'a mut HashMap<String, WState>,
@@ -537,7 +649,6 @@ pub struct Ctx<'a> {
     pub selected: Option<&'a str>,
     pub dragging: Option<&'a str>,
     pub out: &'a mut PhoneOut,
-    pub time: f64,
     /// The project's pictures, by name.
     pub files: &'a HashMap<String, std::path::PathBuf>,
 }
@@ -600,6 +711,16 @@ pub fn draw_screen(ui: &mut Ui, content: Rect, cx: &mut Ctx) {
             body(ui, cx)
         });
     }
+}
+
+/// A screen as designed, not interactive: what shows under a bottom sheet.
+pub fn draw_still(ui: &mut Ui, content: Rect, screen: &Screen, files: &HashMap<String, std::path::PathBuf>) {
+    let mut states = HashMap::new();
+    let mut out = PhoneOut::default();
+    ui.push_id("under_sheet", |ui| {
+        let mut cx = Ctx { screen, states: &mut states, mode: Mode::Run, selected: None, dragging: None, out: &mut out, files };
+        draw_screen(ui, content, &mut cx);
+    });
 }
 
 /// How far the designer wants the design phone's screen scrolled this frame
@@ -989,7 +1110,7 @@ fn draw_leaf(ui: &mut Ui, w: &Widget, st: &mut WState, alpha: f32, invisible: bo
     };
     match w.kind {
         WKind::Button | WKind::TextView => {
-            let g = galley(ui, &st.text, f.clone(), tc);
+            let g = galley_wrapped(ui, &st.text, f.clone(), tc);
             let min = if w.kind == WKind::Button { vec2(64.0, 36.0) } else { vec2(0.0, 0.0) };
             let size = leaf_size(ui, w, text_size(&g, w.bold).max(min));
             let (rect, resp) = ui.allocate_exact_size(size, if live { Sense::click() } else { Sense::hover() });
@@ -1211,21 +1332,19 @@ fn draw_leaf(ui: &mut Ui, w: &Widget, st: &mut WState, alpha: f32, invisible: bo
             p.text(rect.center(), Align2::CENTER_CENTER, t, FontId::proportional(11.0), Color32::from_gray(120));
         }
         WKind::ProgressBar => {
-            let size = leaf_size(ui, w, vec2(40.0, 40.0));
+            // a bar that fills with progress / max, like Android's horizontal
+            // progress bar and SwiftUI's ProgressView(value:total:)
+            let size = leaf_size(ui, w, vec2(160.0, 16.0));
             let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
             if invisible {
                 return;
             }
-            let c = rect.center();
-            let r = 15.0;
-            let start = if run { cx.time as f32 * 5.0 } else { 0.0 };
-            let pts: Vec<Pos2> = (0..=24).map(|i| {
-                let a = start + i as f32 / 24.0 * 4.4;
-                c + vec2(a.cos(), a.sin()) * r
-            }).collect();
-            ui.painter().add(Shape::line(pts, Stroke::new(3.5_f32, PRIMARY.gamma_multiply(alpha))));
-            if run {
-                ui.ctx().request_repaint();
+            let frac = (st.progress as f32 / st.max.max(1) as f32).clamp(0.0, 1.0);
+            let track = Rect::from_center_size(rect.center(), vec2(rect.width(), 4.0));
+            let p = ui.painter();
+            p.rect_filled(track, 2.0, Color32::from_gray(214));
+            if frac > 0.0 {
+                p.rect_filled(Rect::from_min_size(track.min, vec2(track.width() * frac, track.height())), 2.0, PRIMARY.gamma_multiply(alpha));
             }
         }
         WKind::ListView => {

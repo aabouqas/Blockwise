@@ -1573,9 +1573,15 @@ impl Runtime {
                 self.clipboard = Some(self.txt(b, 0));
             }
             "finishActivity" => {
-                match self.back_stack.pop() {
-                    Some(prev) => self.switch_to = Some(prev),
-                    None => self.finished = true,
+                if self.switch_to.is_some() && self.back_stack.last() == Some(&self.screen_idx) {
+                    // "open screen" just ran: as on a phone, the new screen
+                    // stays and this one leaves the back stack
+                    self.back_stack.pop();
+                } else {
+                    match self.back_stack.pop() {
+                        Some(prev) => self.switch_to = Some(prev),
+                        None => self.finished = true,
+                    }
                 }
                 return Flow::Stop;
             }
@@ -2078,6 +2084,128 @@ pub(crate) mod tests {
         assert!(kt.contains("startActivity(android.content.Intent(applicationContext, SecondActivity::class.java))"), "{kt}");
         let sw = crate::native::swift_screen(&p, &p.screens[0]);
         assert!(sw.contains("startActivity(Intent(screen: \"SecondActivity\"))"), "{sw}");
+    }
+
+    /// "open screen" then "close this screen" swaps screens, as on a phone:
+    /// the new one shows and Back skips the closed one.
+    #[test]
+    fn app_bar_code() {
+        let mut p = Project::new(1, "T", "T", "com.my.t");
+        p.screens.push(Screen::new("second"));
+        // a project saved before app bar settings existed
+        let old: Screen = serde_json::from_str(r#"{"name":"main","widgets":[],"vars":[],"lists":[],"components":[],"events":[]}"#).unwrap();
+        assert_eq!(old.app_bar, AppBar::default());
+        // by default: the themed bar, its up arrow on screens opened from another
+        let kt = crate::native::kotlin(&p, &p.screens[1]);
+        assert!(kt.contains("if (!isTaskRoot) actionBar?.setDisplayHomeAsUpEnabled(true)") && kt.contains("android.R.id.home"));
+        assert!(!kt.contains("statusBarColor") && !kt.contains("onTitleChanged"));
+        let km = crate::native::kotlin_manifest(&p);
+        assert!(km.contains("android:theme=\"@style/Blockwise\">") && km.contains("<activity android:name=\".SecondActivity\"/>"));
+        let sw = crate::native::swift_screen(&p, &p.screens[1]);
+        assert!(!sw.contains("toolbarBackground") && sw.contains("StatusBarLook.set(light: nil)"));
+        // a white bar with a red title and no back arrow
+        p.screens[1].app_bar = AppBar { color: 0xFFFF_FFFF, title_color: 0xFFE5_3935, no_back: true, ..Default::default() };
+        let kt = crate::native::kotlin(&p, &p.screens[1]);
+        assert!(kt.contains("ColorDrawable(0xFFFFFFFF.toInt())") && kt.contains("window.statusBarColor = 0xFFD8D8D8.toInt()") && kt.contains("SYSTEM_UI_FLAG_LIGHT_STATUS_BAR"));
+        assert!(kt.contains("ForegroundColorSpan(0xFFE53935.toInt())") && !kt.contains("setDisplayHomeAsUpEnabled"));
+        p.screens[1].app_bar.no_back = false;
+        assert!(crate::native::kotlin(&p, &p.screens[1]).contains("it.setTint(0xFFE53935.toInt()); actionBar?.setHomeAsUpIndicator(it)"));
+        p.screens[1].app_bar.no_back = true;
+        let sw = crate::native::swift_screen(&p, &p.screens[1]);
+        assert!(sw.contains(".toolbarBackground(Color(argb: 0xFFFFFFFF), for: .navigationBar)") && sw.contains(".toolbarColorScheme(.light, for: .navigationBar)") && sw.contains("StatusBarLook.set(light: false)"));
+        assert!(sw.contains("foregroundColor(Color(argb: 0xFFE53935))") && sw.contains(".navigationBarBackButtonHidden(true)"));
+        // a red title reads as dark, so the bar's arrow and menu are dark too
+        assert!(crate::native::kotlin_manifest(&p).contains("SecondActivity\" android:theme=\"@style/Blockwise.LightBar\""));
+        // no bar at all
+        p.screens[1].app_bar = AppBar { hidden: true, ..Default::default() };
+        assert!(crate::native::kotlin_manifest(&p).contains("android:theme=\"@style/Blockwise.NoBar\""));
+        assert!(crate::native::swift_screen(&p, &p.screens[1]).contains(".toolbar(.hidden, for: .navigationBar)"));
+        assert!(!crate::native::kotlin(&p, &p.screens[1]).contains("actionBar"));
+    }
+
+    #[test]
+    fn app_bar_buttons() {
+        let mut p = Project::new(1, "T", "T", "com.my.t");
+        p.screens[0].app_bar.actions = vec![
+            BarAction { id: "searchButton".into(), icon: "search".into(), label: "Search".into() },
+            BarAction { id: "shareButton".into(), icon: "share".into(), label: String::new() },
+        ];
+        let toast = Block { id: new_id(), op: "doToast".into(), args: vec![Arg::Text("Searching".into())], sub1: vec![], sub2: vec![] };
+        p.screens[0].events.push(Event { target: "searchButton".into(), name: "onClick".into(), blocks: vec![toast], loose: vec![], params: vec![] });
+        assert!(p.screens[0].name_taken("searchButton") && p.screens[0].next_action_id("search") == "searchButton2");
+        // the preview runs its event
+        let mut rt = Runtime::new(p.clone(), 0.0);
+        rt.fire("searchButton", "onClick", HashMap::new());
+        assert_eq!(rt.toasts.last().map(|t| t.0.as_str()), Some("Searching"));
+        // Android: a menu with tinted icons, the event in onOptionsItemSelected
+        let kt = crate::native::kotlin(&p, &p.screens[0]);
+        assert!(kt.contains("menu.add(0, 1, 0, \"Search\")") && kt.contains("setIcon(R.drawable.bw_icon_search)") && kt.contains("menu.add(0, 2, 1, \"share\")"));
+        assert!(kt.contains("icon?.mutate()?.setTint(0xFFFFFFFF.toInt())"));
+        let when = kt.split("override fun onOptionsItemSelected").nth(1).unwrap();
+        assert!(when.contains("1 -> {") && when.contains("Searching") && when.contains("android.R.id.home -> onBackPressed()"));
+        // iPhone: SF Symbols in the trailing toolbar
+        let sw = crate::native::swift_screen(&p, &p.screens[0]);
+        assert!(sw.contains("Button { m.searchButton_onClick() } label: { Image(systemName: \"magnifyingglass\") }") && sw.contains("func searchButton_onClick()"));
+        assert!(sw.contains("Button { } label: { Image(systemName: \"square.and.arrow.up\") }"));
+        // the icon drawn from the Lucide outline
+        let v = crate::icons::android_vector(bar_icon("search").0);
+        assert!(v.contains("android:viewportWidth=\"24\"") && v.contains("pathData=\"M") && v.matches('Z').count() >= 2);
+        // a hidden bar has no buttons
+        p.screens[0].app_bar.hidden = true;
+        assert!(!crate::native::kotlin(&p, &p.screens[0]).contains("onCreateOptionsMenu"));
+        assert!(!crate::native::swift_screen(&p, &p.screens[0]).contains("magnifyingglass"));
+    }
+
+    #[test]
+    fn bottom_sheets() {
+        let mut p = Project::new(1, "T", "T", "com.my.t");
+        p.screens.push(Screen::new("picker"));
+        p.screens[1].sheet = Sheet::Half;
+        p.screens[1].app_bar.actions.push(BarAction { id: "doneButton".into(), icon: "done".into(), label: String::new() });
+        // the first screen is never a sheet
+        p.screens[0].sheet = Sheet::Full;
+        assert_eq!(p.sheet_of(&p.screens[0]), Sheet::No);
+        let km = crate::native::kotlin_manifest(&p);
+        assert!(km.contains("<activity android:name=\".PickerActivity\" android:theme=\"@style/Blockwise.Sheet\"/>") && !km.contains("MainActivity\" android:theme=\"@style/Blockwise.Sheet"));
+        let kt = crate::native::kotlin(&p, &p.screens[1]);
+        assert!(kt.contains("window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, (resources.displayMetrics.heightPixels * 0.5).toInt())") && kt.contains("setFinishOnTouchOutside(true)"));
+        // no app bar on a sheet: no up arrow, no buttons
+        assert!(!kt.contains("actionBar") && !kt.contains("onCreateOptionsMenu"));
+        let sw = crate::native::swift_screen(&p, &p.screens[1]);
+        assert!(sw.contains(".presentationDetents([.medium])") && sw.contains("router.sheet = nil"));
+        assert!(!sw.contains("doneButton") && !sw.contains("StatusBarLook.set"));
+        let main = crate::native::swift_screen(&p, &p.screens[0]);
+        assert!(main.contains("if Router.sheets.contains(intent.screen)") && main.contains("if openedSheet"));
+        let app = crate::native::swift_app(&p);
+        assert!(app.contains(".sheet(item: $router.sheet)") && app.contains("static let sheets: Set<String> = [\"PickerActivity\"]"));
+        // the preview: the sheet opens over main, back closes it
+        let mut rt = Runtime::new(p.clone(), 0.0);
+        rt.go_to_screen(1);
+        assert_eq!((rt.screen().name.as_str(), rt.back_stack.clone()), ("picker", vec![0]));
+        rt.press_back();
+        assert_eq!(rt.screen().name, "main");
+        // saved projects without the setting open as pages
+        let old: Screen = serde_json::from_str(r#"{"name":"x","widgets":[],"vars":[],"lists":[],"components":[],"events":[]}"#).unwrap();
+        assert_eq!(old.sheet, Sheet::No);
+        assert!(serde_json::to_string(&p.screens[1]).unwrap().contains("\"sheet\":\"half\""));
+    }
+
+    #[test]
+    fn open_then_close_swaps_screens() {
+        let mut p = Project::new(1, "T", "T", "com.my.t");
+        p.screens.push(Screen::new("quiz"));
+        p.screens.push(Screen::new("result"));
+        let open = blk("openScreen", vec![Arg::Text("ResultActivity".into())], vec![], vec![]);
+        p.screens[1].events[0].blocks = vec![open, blk("finishActivity", vec![], vec![], vec![])];
+        let mut rt = Runtime::new(p.clone(), 0.0);
+        rt.go_to_screen(1);
+        assert_eq!(rt.screen().name, "result", "{:?}", rt.log);
+        assert_eq!(rt.back_stack, vec![0], "the quiz left the back stack");
+        rt.press_back();
+        assert_eq!(rt.screen().name, "main", "Back goes past the closed quiz");
+        // iOS does the same: the screen below the new one leaves the path
+        let sw = crate::native::swift_screen(&p, &p.screens[1]);
+        assert!(sw.contains("router.path.remove(at: router.path.count - 2)"), "{sw}");
     }
 
     #[test]

@@ -517,7 +517,50 @@ pub fn kotlin_with(p: &Project, s: &Screen, trace: bool) -> String {
         src.push_str(&format!("private lateinit var {}_video: VideoControl\n", w.id));
     }
     src.push_str("\noverride fun onCreate(savedInstanceState: Bundle?) {\nsuper.onCreate(savedInstanceState)\n");
-    src.push_str(&format!("setContentView(R.layout.{})\ninitialize()\ninitializeLogic()\n}}\n\n", s.name));
+    let sheet = p.sheet_of(s);
+    if sheet == Sheet::No {
+        src.push_str(&kotlin_app_bar(&s.app_bar));
+        src.push_str(&format!("setContentView(R.layout.{})\n", s.name));
+    } else {
+        // a bottom sheet: a window on the lower part of the phone, over the
+        // screen that opened it; a tap above it closes it
+        src.push_str(&format!("setContentView(R.layout.{})\nfindViewById<View>(android.R.id.content).setPadding(0, ({SHEET_TOP} * resources.displayMetrics.density).toInt(), 0, 0)\n", s.name));
+        src.push_str(&format!("window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, (resources.displayMetrics.heightPixels * {}).toInt())\nwindow.setGravity(Gravity.BOTTOM)\nsetFinishOnTouchOutside(true)\n", sheet.height()));
+    }
+    src.push_str("initialize()\ninitializeLogic()\n}\n\n");
+    let barless = s.app_bar.hidden || sheet != Sheet::No;
+    let actions: &[BarAction] = if barless { &[] } else { &s.app_bar.actions };
+    if !actions.is_empty() {
+        // the bar's icon buttons, in the title's colour
+        src.push_str("override fun onCreateOptionsMenu(menu: android.view.Menu): Boolean {\n");
+        for (i, a) in actions.iter().enumerate() {
+            src.push_str(&format!(
+                "menu.add(0, {}, {i}, {}).apply {{\nsetIcon(R.drawable.{})\nsetShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_IF_ROOM)\nicon?.mutate()?.setTint(0x{:08X}.toInt())\n}}\n",
+                i + 1,
+                crate::codegen::quote_for(if a.label.is_empty() { &a.icon } else { &a.label }, Lang::Kotlin),
+                android_icon_name(&a.icon),
+                s.app_bar.title(false)
+            ));
+        }
+        src.push_str("return true\n}\n\n");
+    }
+    let up = !barless && !s.app_bar.no_back;
+    if up || !actions.is_empty() {
+        src.push_str("override fun onOptionsItemSelected(item: android.view.MenuItem): Boolean {\nwhen (item.itemId) {\n");
+        if up {
+            // the up arrow does what the phone's back does
+            src.push_str("android.R.id.home -> onBackPressed()\n");
+        }
+        for (i, a) in actions.iter().enumerate() {
+            let body = event(s, &a.id, "onClick").map(|e| g.event_body(e)).unwrap_or_default();
+            src.push_str(&format!("{} -> {{\n{body}\n}}\n", i + 1));
+        }
+        src.push_str("else -> return super.onOptionsItemSelected(item)\n}\nreturn true\n}\n\n");
+    }
+    if !barless && s.app_bar.title_color != 0 {
+        // the title keeps its colour, setTitle blocks included
+        src.push_str(&format!("override fun onTitleChanged(title: CharSequence?, color: Int) {{\nval t = android.text.SpannableString(title ?: \"\")\nt.setSpan(android.text.style.ForegroundColorSpan(0x{:08X}.toInt()), 0, t.length, 0)\nsuper.onTitleChanged(t, color)\n}}\n\n", s.app_bar.title(false)));
+    }
     src.push_str("private fun initialize() {\n");
     for w in &s.widgets {
         src.push_str(&format!("{0} = findViewById(R.id.{0})\n", w.id));
@@ -908,7 +951,7 @@ pub fn swift_screen_with(p: &Project, s: &Screen, trace: bool) -> String {
     let model = format!("{act}Model");
     let mut src = String::from("import SwiftUI\n\n");
     // ----- model
-    src.push_str(&format!("final class {model}: ObservableObject {{\nlet router: Router\nlet extras: [String: String]\nprivate var started = false\n"));
+    src.push_str(&format!("final class {model}: ObservableObject {{\nlet router: Router\nlet extras: [String: String]\nprivate var started = false\nprivate var opened = false\nprivate var openedSheet = false\n"));
     let title = if s.title.is_empty() { p.app_name.clone() } else { s.title.clone() };
     src.push_str(&format!("@Published var screenTitle = {}\n@Published var toastText: String? = nil\n\n", quote(&title)));
     for v in &s.vars {
@@ -969,8 +1012,15 @@ pub fn swift_screen_with(p: &Project, s: &Screen, trace: bool) -> String {
     }
     src.push_str("}\n\n");
     src.push_str("func showToast(_ text: String) {\ntoastText = text\nDispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in\nif self?.toastText == text { self?.toastText = nil }\n}\n}\n\n");
-    src.push_str("func finish() {\nif !router.path.isEmpty { router.path.removeLast() }\n}\n\n");
-    src.push_str("func startActivity(_ intent: Intent) {\nrouter.path.append(Route(screen: intent.screen, extras: intent.extras))\n}\n\n");
+    // after startActivity, finish closes this screen (below the new one), as on Android
+    if p.sheet_of(s) != Sheet::No {
+        // a message showing on the sheet goes on showing on the screen below
+        src.push_str("func finish() {\nif let t = toastText { router.showToast(t) }\nrouter.sheet = nil\n}\n\n");
+    } else {
+        // "open screen" then "close this screen": the opened one stays, this one leaves
+        src.push_str("func finish() {\nif openedSheet {\nopenedSheet = false\nif !router.path.isEmpty { router.path.removeLast() }\n} else if opened {\nopened = false\nif router.path.count >= 2 { router.path.remove(at: router.path.count - 2) }\n} else if !router.path.isEmpty {\nrouter.path.removeLast()\n}\n}\n\n");
+    }
+    src.push_str("func startActivity(_ intent: Intent) {\nlet route = Route(screen: intent.screen, extras: intent.extras)\nif Router.sheets.contains(intent.screen) {\nrouter.sheet = route\nopenedSheet = true\n} else {\nrouter.sheet = nil\nrouter.path.append(route)\nopened = true\n}\nDispatchQueue.main.async { [weak self] in self?.opened = false; self?.openedSheet = false }\n}\n\n");
     src.push_str("func performClick(_ id: String) {\nswitch id {\n");
     for e in s.events.iter().filter(|e| e.name == "onClick" && !e.target.is_empty() && e.target != "moreBlock") {
         src.push_str(&format!("case \"{0}\": {0}_onClick()\n", e.target));
@@ -1032,11 +1082,59 @@ pub fn swift_screen_with(p: &Project, s: &Screen, trace: bool) -> String {
         let d = &c.name;
         src.push_str(&format!(".alert(m.{d}.title, isPresented: $m.{d}.shown) {{\nif let l = m.{d}.okLabel {{ Button(l) {{ m.{d}.ok?() }} }}\nif let l = m.{d}.cancelLabel {{ Button(l, role: .cancel) {{ m.{d}.cancel?() }} }}\n}} message: {{\nText(m.{d}.message)\n}}\n"));
     }
-    if has_event(s, "", "onBackPressed") {
+    let sheet = p.sheet_of(s);
+    if sheet != Sheet::No {
+        src.push_str(&format!(".padding(.top, {SHEET_TOP})\n.presentationDetents([.{}])\n.presentationDragIndicator(.visible)\n.presentationBackground(Color.white)\n", if sheet == Sheet::Half { "medium" } else { "large" }));
+    } else {
+        src.push_str(&swift_app_bar(s));
+    }
+    if sheet != Sheet::No {
+    } else if s.app_bar.no_back {
+        src.push_str(".navigationBarBackButtonHidden(true)\n");
+    } else if has_event(s, "", "onBackPressed") {
         src.push_str(".navigationBarBackButtonHidden(true)\n.toolbar {\nToolbarItem(placement: .navigationBarLeading) {\nButton(\"Back\") { m.onBackPressed() }\n}\n}\n");
     }
-    src.push_str(".onAppear { m.start() }\n}\n}\n");
+    let light = match (s.app_bar.hidden, s.app_bar.color) {
+        (false, c) if c != 0 => if is_light(s.app_bar.bar(true)) { "false" } else { "true" },
+        _ => "nil",
+    };
+    if sheet != Sheet::No {
+        // the status bar stays as the screen below set it
+        src.push_str(".onAppear { m.start() }\n}\n}\n");
+    } else {
+        src.push_str(&format!(".onAppear {{ StatusBarLook.set(light: {light}); m.start() }}\n}}\n}}\n"));
+    }
     indent(&src, 0)
+}
+
+/// The navigation bar's look: hidden, or in the colours picked. The title
+/// gets its own colour through a principal item, which iOS has no setting for;
+/// the back button stays the system's (it takes no tint), and the status
+/// bar follows the bar through StatusBarLook.
+fn swift_app_bar(s: &Screen) -> String {
+    let bar = &s.app_bar;
+    if bar.hidden {
+        return ".toolbar(.hidden, for: .navigationBar)\n".into();
+    }
+    let mut out = String::new();
+    if bar.color != 0 {
+        let scheme = if is_light(bar.bar(true)) { "light" } else { "dark" };
+        out.push_str(&format!(".toolbarBackground(Color(argb: 0x{:08X}), for: .navigationBar)\n.toolbarBackground(.visible, for: .navigationBar)\n.toolbarColorScheme(.{scheme}, for: .navigationBar)\n", bar.bar(true)));
+    }
+    if !bar.actions.is_empty() {
+        let tint = if bar.color != 0 || bar.title_color != 0 { format!(".foregroundStyle(Color(argb: 0x{:08X}))", bar.title(true)) } else { String::new() };
+        out.push_str(".toolbar {\nToolbarItemGroup(placement: .topBarTrailing) {\n");
+        for a in &bar.actions {
+            let label = crate::codegen::quote_for(if a.label.is_empty() { &a.icon } else { &a.label }, Lang::Swift);
+            let run = if has_event(s, &a.id, "onClick") { format!(" m.{}_onClick() ", a.id) } else { " ".into() };
+            out.push_str(&format!("Button {{{run}}} label: {{ Image(systemName: \"{}\"){tint} }}\n.accessibilityLabel({label})\n", bar_icon(&a.icon).1));
+        }
+        out.push_str("}\n}\n");
+    }
+    if bar.color != 0 || bar.title_color != 0 {
+        out.push_str(&format!(".toolbar {{\nToolbarItem(placement: .principal) {{\nText(m.screenTitle).font(.headline).foregroundColor(Color(argb: 0x{:08X}))\n}}\n}}\n", bar.title(true)));
+    }
+    out
 }
 
 fn swift_type_name(app_name: &str) -> String {
@@ -1060,9 +1158,11 @@ fn swift_type_name(app_name: &str) -> String {
 pub fn swift_app(p: &Project) -> String {
     let first = p.screens.first().map(swift_name).unwrap_or_else(|| "Main".into());
     let mut src = format!(
-        "import SwiftUI\n\n@main\nstruct {}App: App {{\n@StateObject private var router = Router()\n\nvar body: some Scene {{\nWindowGroup {{\nNavigationStack(path: $router.path) {{\n{first}Screen(router: router)\n.navigationDestination(for: Route.self) {{ route in\nScreenFor(route: route, router: router)\n}}\n}}\n}}\n}}\n}}\n\n",
+        "import SwiftUI\n\n@main\nstruct {}App: App {{\n@StateObject private var router = Router()\n\nvar body: some Scene {{\nWindowGroup {{\nRootView(router: router)\n}}\n}}\n}}\n\n/// The screens: pushed pages, a bottom sheet over them, and a message from a closed sheet.\nstruct RootView: View {{\n@ObservedObject var router: Router\n\nvar body: some View {{\nNavigationStack(path: $router.path) {{\n{first}Screen(router: router)\n.navigationDestination(for: Route.self) {{ route in\nScreenFor(route: route, router: router)\n}}\n}}\n.sheet(item: $router.sheet) {{ route in\nScreenFor(route: route, router: router)\n}}\n.overlay(alignment: .bottom) {{ ToastView(text: router.toastText) }}\n}}\n}}\n\n",
         swift_type_name(&p.app_name)
     );
+    let sheets: Vec<String> = p.screens.iter().filter(|s| p.sheet_of(s) != Sheet::No).map(|s| format!("\"{}\"", s.activity_name())).collect();
+    src.push_str(&format!("extension Router {{\n/// The screens that open as bottom sheets.\nstatic let sheets: Set<String> = [{}]\n}}\n\n", sheets.join(", ")));
     src.push_str("/// Opens the screen an Intent names.\nstruct ScreenFor: View {\nlet route: Route\nlet router: Router\n\nvar body: some View {\nswitch route.screen {\n");
     for s in p.screens.iter().skip(1) {
         src.push_str(&format!("case \"{}\":\n{}Screen(router: router, extras: route.extras)\n", s.activity_name(), swift_name(s)));
@@ -1129,7 +1229,7 @@ struct DialogState {
     var cancel: (() -> Void)? = nil
 }
 
-struct Route: Hashable {
+struct Route: Hashable, Identifiable {
     let id = UUID()
     let screen: String
     let extras: [String: String]
@@ -1137,6 +1237,17 @@ struct Route: Hashable {
 
 final class Router: ObservableObject {
     @Published var path: [Route] = []
+    /// The bottom sheet showing over the screens, if any.
+    @Published var sheet: Route? = nil
+    /// A message from a sheet that closed (a screen's own show over it).
+    @Published var toastText: String? = nil
+
+    func showToast(_ text: String) {
+        toastText = text
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+            if self?.toastText == text { self?.toastText = nil }
+        }
+    }
 }
 
 /// Saved data (the Android SharedPreferences), kept in UserDefaults.
@@ -1146,6 +1257,38 @@ struct Prefs {
     func set(_ key: String, _ value: String) { UserDefaults.standard.set(value, forKey: name + "." + key) }
     func remove(_ key: String) { UserDefaults.standard.removeObject(forKey: name + "." + key) }
     func contains(_ key: String) -> Bool { UserDefaults.standard.object(forKey: name + "." + key) != nil }
+}
+
+/// The status bar's text over a coloured navigation bar: light on a dark
+/// bar. SwiftUI's navigation controller decides it and has no setting, so
+/// its answer is replaced by the one the showing screen asks for (nil: the
+/// system's own).
+enum StatusBarLook {
+    static var light: Bool? = nil
+    private static var done = Set<ObjectIdentifier>()
+    static func set(light l: Bool?) {
+        light = l
+        DispatchQueue.main.async {
+            guard let root = UIApplication.shared.connectedScenes.compactMap({ ($0 as? UIWindowScene)?.keyWindow }).first?.rootViewController else { return }
+            var vc: UIViewController? = root
+            while let v = vc {
+                let cls: AnyClass = type(of: v)
+                if v is UINavigationController && !done.contains(ObjectIdentifier(cls)) {
+                    done.insert(ObjectIdentifier(cls))
+                    let answer: @convention(block) (AnyObject) -> Int = { _ in
+                        switch StatusBarLook.light {
+                        case .some(true): return UIStatusBarStyle.lightContent.rawValue
+                        case .some(false): return UIStatusBarStyle.darkContent.rawValue
+                        case .none: return UIStatusBarStyle.default.rawValue
+                        }
+                    }
+                    class_replaceMethod(cls, #selector(getter: UIViewController.preferredStatusBarStyle), imp_implementationWithBlock(answer), "q@:")
+                }
+                v.setNeedsStatusBarAppearanceUpdate()
+                vc = v.childForStatusBarStyle
+            }
+        }
+    }
 }
 
 enum Helpers {
@@ -2612,18 +2755,75 @@ pub fn kotlin_crash_catcher(p: &Project) -> String {
 /// localhost on a phone, 10.0.2.2 from the Android emulator.
 const NETWORK_SECURITY: &str = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<network-security-config>\n\t<domain-config cleartextTrafficPermitted=\"true\">\n\t\t<domain includeSubdomains=\"false\">localhost</domain>\n\t\t<domain includeSubdomains=\"false\">127.0.0.1</domain>\n\t\t<domain includeSubdomains=\"false\">10.0.2.2</domain>\n\t</domain-config>\n</network-security-config>\n";
 
+/// The app's themes: light screens, the app bar and status bar in the theme
+/// colour, its title and arrow white (Blockwise), dark on a light bar
+/// (Blockwise.LightBar), no app bar (Blockwise.NoBar), or a bottom sheet
+/// sliding up over the screen below (Blockwise.Sheet). The navigation bar is
+/// white, as in the preview. Buttons keep
+/// their text as typed, as in the preview.
+/// A bottom sheet's background: white with round top corners and the handle.
+const SHEET_BACKGROUND: &str = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<layer-list xmlns:android=\"http://schemas.android.com/apk/res/android\">\n\t<item>\n\t\t<shape android:shape=\"rectangle\">\n\t\t\t<solid android:color=\"#FFFFFFFF\"/>\n\t\t\t<corners android:topLeftRadius=\"24dp\" android:topRightRadius=\"24dp\"/>\n\t\t</shape>\n\t</item>\n\t<item android:top=\"8dp\" android:width=\"32dp\" android:height=\"4dp\" android:gravity=\"top|center_horizontal\">\n\t\t<shape android:shape=\"rectangle\">\n\t\t\t<solid android:color=\"#FF79747E\"/>\n\t\t\t<corners android:radius=\"2dp\"/>\n\t\t</shape>\n\t</item>\n</layer-list>\n";
+const SHEET_IN: &str = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<translate xmlns:android=\"http://schemas.android.com/apk/res/android\" android:fromYDelta=\"100%\" android:toYDelta=\"0\" android:duration=\"250\" android:interpolator=\"@android:interpolator/decelerate_cubic\"/>\n";
+const SHEET_OUT: &str = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<translate xmlns:android=\"http://schemas.android.com/apk/res/android\" android:fromYDelta=\"0\" android:toYDelta=\"100%\" android:duration=\"200\" android:interpolator=\"@android:interpolator/accelerate_cubic\"/>\n";
+
+const ANDROID_THEMES: &str = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<resources xmlns:tools=\"http://schemas.android.com/tools\">\n\t<style name=\"Blockwise\" parent=\"@android:style/Theme.Material.Light.DarkActionBar\">\n\t\t<item name=\"android:colorPrimary\">#5B5BD6</item>\n\t\t<item name=\"android:colorPrimaryDark\">#4A4AC4</item>\n\t\t<item name=\"android:colorAccent\">#5B5BD6</item>\n\t\t<item name=\"android:buttonStyle\">@style/Blockwise.Button</item>\n\t\t<item name=\"android:navigationBarColor\">#FFFFFFFF</item>\n\t\t<item name=\"android:windowLightNavigationBar\" tools:targetApi=\"27\">true</item>\n\t</style>\n\t<style name=\"Blockwise.LightBar\" parent=\"@android:style/Theme.Material.Light\">\n\t\t<item name=\"android:colorPrimary\">#5B5BD6</item>\n\t\t<item name=\"android:colorPrimaryDark\">#4A4AC4</item>\n\t\t<item name=\"android:colorAccent\">#5B5BD6</item>\n\t\t<item name=\"android:buttonStyle\">@style/Blockwise.Button</item>\n\t\t<item name=\"android:navigationBarColor\">#FFFFFFFF</item>\n\t\t<item name=\"android:windowLightNavigationBar\" tools:targetApi=\"27\">true</item>\n\t</style>\n\t<style name=\"Blockwise.NoBar\" parent=\"@android:style/Theme.Material.Light.NoActionBar\">\n\t\t<item name=\"android:colorPrimary\">#5B5BD6</item>\n\t\t<item name=\"android:colorPrimaryDark\">#4A4AC4</item>\n\t\t<item name=\"android:colorAccent\">#5B5BD6</item>\n\t\t<item name=\"android:buttonStyle\">@style/Blockwise.Button</item>\n\t\t<item name=\"android:navigationBarColor\">#FFFFFFFF</item>\n\t\t<item name=\"android:windowLightNavigationBar\" tools:targetApi=\"27\">true</item>\n\t</style>\n\t<style name=\"Blockwise.Sheet\" parent=\"@android:style/Theme.Material.Light.Dialog.NoActionBar\">\n\t\t<item name=\"android:colorPrimary\">#5B5BD6</item>\n\t\t<item name=\"android:colorAccent\">#5B5BD6</item>\n\t\t<item name=\"android:buttonStyle\">@style/Blockwise.Button</item>\n\t\t<item name=\"android:windowBackground\">@drawable/bw_sheet</item>\n\t\t<item name=\"android:windowMinWidthMajor\">100%</item>\n\t\t<item name=\"android:windowMinWidthMinor\">100%</item>\n\t\t<item name=\"android:backgroundDimAmount\">0.32</item>\n\t\t<item name=\"android:windowAnimationStyle\">@style/Blockwise.SheetSlide</item>\n\t</style>\n\t<style name=\"Blockwise.SheetSlide\">\n\t\t<item name=\"android:windowEnterAnimation\">@anim/bw_sheet_in</item>\n\t\t<item name=\"android:windowExitAnimation\">@anim/bw_sheet_out</item>\n\t</style>\n\t<style name=\"Blockwise.Button\" parent=\"@android:style/Widget.Material.Button\">\n\t\t<item name=\"android:textAllCaps\">false</item>\n\t</style>\n</resources>\n";
+
+/// The drawable an app bar icon is written to (res/drawable).
+pub fn android_icon_name(icon: &str) -> String {
+    let known = BAR_ICONS.iter().any(|(n, _, _)| *n == icon);
+    format!("bw_icon_{}", if known { icon } else { "more" })
+}
+
+/// Which of ANDROID_THEMES a screen uses.
+fn android_theme(bar: &AppBar) -> &'static str {
+    if bar.hidden {
+        "Blockwise.NoBar"
+    } else if is_light(bar.title(false)) {
+        "Blockwise"
+    } else {
+        "Blockwise.LightBar"
+    }
+}
+
+/// onCreate's first lines: the colours picked for the app bar and the
+/// status bar, and the up arrow on a screen opened from another.
+fn kotlin_app_bar(bar: &AppBar) -> String {
+    let mut out = String::new();
+    if bar.color != 0 {
+        out.push_str(&format!("window.statusBarColor = 0x{:08X}.toInt()\n", bar.status()));
+        if is_light(bar.status()) {
+            out.push_str("if (android.os.Build.VERSION.SDK_INT >= 23) window.decorView.systemUiVisibility = android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR\n");
+        }
+        if !bar.hidden {
+            out.push_str(&format!("actionBar?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(0x{:08X}.toInt()))\n", bar.bar(false)));
+        }
+    }
+    if !bar.hidden && !bar.no_back {
+        out.push_str("if (!isTaskRoot) actionBar?.setDisplayHomeAsUpEnabled(true)\n");
+        if bar.title_color != 0 {
+            // the theme's arrow, in the title's colour
+            out.push_str(&format!("theme.obtainStyledAttributes(intArrayOf(android.R.attr.homeAsUpIndicator)).apply {{\ngetDrawable(0)?.mutate()?.let {{ it.setTint(0x{:08X}.toInt()); actionBar?.setHomeAsUpIndicator(it) }}\nrecycle()\n}}\n", bar.title(false)));
+        }
+    }
+    out
+}
+
 /// App settings for the Kotlin project: name, icon, screens, and the first
 /// screen marked as the one the launcher opens.
 pub fn kotlin_manifest(p: &Project) -> String {
     let mut out = format!(
-        "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">\n\t<uses-permission android:name=\"android.permission.INTERNET\"/>\n\t<uses-permission android:name=\"android.permission.VIBRATE\"/>\n\t<application\n\t\tandroid:name=\".CrashCatcher\"\n\t\tandroid:label=\"{}\"\n\t\tandroid:icon=\"@mipmap/app_icon\"\n\t\tandroid:roundIcon=\"@mipmap/app_icon\"\n\t\tandroid:networkSecurityConfig=\"@xml/network_security_config\">\n",
+        "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">\n\t<uses-permission android:name=\"android.permission.INTERNET\"/>\n\t<uses-permission android:name=\"android.permission.VIBRATE\"/>\n\t<application\n\t\tandroid:name=\".CrashCatcher\"\n\t\tandroid:label=\"{}\"\n\t\tandroid:icon=\"@mipmap/app_icon\"\n\t\tandroid:roundIcon=\"@mipmap/app_icon\"\n\t\tandroid:networkSecurityConfig=\"@xml/network_security_config\"\n\t\tandroid:theme=\"@style/Blockwise\">\n",
         crate::codegen::xml_escape(&p.app_name)
     );
     for (i, s) in p.screens.iter().enumerate() {
+        let theme = match if p.sheet_of(s) != Sheet::No { "Blockwise.Sheet" } else { android_theme(&s.app_bar) } {
+            "Blockwise" => String::new(),
+            t => format!(" android:theme=\"@style/{t}\""),
+        };
         if i == 0 {
-            out.push_str(&format!("\t\t<activity android:name=\".{}\" android:exported=\"true\">\n\t\t\t<intent-filter>\n\t\t\t\t<action android:name=\"android.intent.action.MAIN\"/>\n\t\t\t\t<category android:name=\"android.intent.category.LAUNCHER\"/>\n\t\t\t</intent-filter>\n\t\t</activity>\n", s.activity_name()));
+            out.push_str(&format!("\t\t<activity android:name=\".{}\"{theme} android:exported=\"true\">\n\t\t\t<intent-filter>\n\t\t\t\t<action android:name=\"android.intent.action.MAIN\"/>\n\t\t\t\t<category android:name=\"android.intent.category.LAUNCHER\"/>\n\t\t\t</intent-filter>\n\t\t</activity>\n", s.activity_name()));
         } else {
-            out.push_str(&format!("\t\t<activity android:name=\".{}\"/>\n", s.activity_name()));
+            out.push_str(&format!("\t\t<activity android:name=\".{}\"{theme}/>\n", s.activity_name()));
         }
     }
     // where the camera app writes the photo or video it takes (AppMedia)
@@ -2729,6 +2929,8 @@ pub fn write_kotlin_project(p: &Project, dir: &std::path::Path, g: &GradleSetup,
     std::fs::write(main.join("AndroidManifest.xml"), kotlin_manifest(p))?;
     std::fs::create_dir_all(main.join("res/xml"))?;
     std::fs::write(main.join("res/xml/network_security_config.xml"), NETWORK_SECURITY)?;
+    std::fs::create_dir_all(main.join("res/values"))?;
+    std::fs::write(main.join("res/values/themes.xml"), ANDROID_THEMES)?;
     // pictures in drawable (1 pixel is 1 dp), sounds and videos in raw, fonts and data
     // files in assets (read by their file name)
     for d in ["res/drawable", "res/raw", "assets"] {
@@ -2748,6 +2950,18 @@ pub fn write_kotlin_project(p: &Project, dir: &std::path::Path, g: &GradleSetup,
     std::fs::create_dir_all(main.join("res/drawable"))?;
     std::fs::write(main.join("res/drawable/blockwise_eye.xml"), eye_drawable(EYE_PATH))?;
     std::fs::write(main.join("res/drawable/blockwise_eye_off.xml"), eye_drawable(EYE_OFF_PATH))?;
+    // bottom sheets: their background and how they slide
+    std::fs::write(main.join("res/drawable/bw_sheet.xml"), SHEET_BACKGROUND)?;
+    std::fs::create_dir_all(main.join("res/anim"))?;
+    std::fs::write(main.join("res/anim/bw_sheet_in.xml"), SHEET_IN)?;
+    std::fs::write(main.join("res/anim/bw_sheet_out.xml"), SHEET_OUT)?;
+    // the app bars' icons
+    let mut icons: Vec<&str> = p.screens.iter().flat_map(|s| s.app_bar.actions.iter().map(|a| a.icon.as_str())).collect();
+    icons.sort();
+    icons.dedup();
+    for icon in icons {
+        std::fs::write(main.join(format!("res/drawable/{}.xml", android_icon_name(icon))), crate::icons::android_vector(bar_icon(icon).0))?;
+    }
     for (path, bytes) in crate::icons::android_icon_files(p) {
         let f = main.join("res").join(path);
         if let Some(parent) = f.parent() {

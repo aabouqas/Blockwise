@@ -130,6 +130,9 @@ pub fn show(ui: &mut Ui, st: &mut DesignState, project: &mut Project, si: usize,
     let images = project.file_names(FileKind::Image);
     let fonts = project.file_names(FileKind::Font);
     let videos = project.file_names(FileKind::Video);
+    // a bottom sheet is drawn over the first screen, which usually opens it
+    let sheet = project.sheet_of(&project.screens[si]);
+    let below = (sheet != Sheet::No).then(|| project.screens[0].clone());
     let screen = &mut project.screens[si];
     if let Some(sel) = &st.selected {
         if screen.widget(sel).is_none() {
@@ -204,7 +207,7 @@ pub fn show(ui: &mut Ui, st: &mut DesignState, project: &mut Project, si: usize,
                 ui.add_space(8.0);
                 ui.disable();
             }
-            changed |= properties(ui, st, screen, &images, &fonts, &videos);
+            changed |= properties(ui, st, screen, si == 0, &images, &fonts, &videos);
         });
     });
 
@@ -254,12 +257,22 @@ pub fn show(ui: &mut Ui, st: &mut DesignState, project: &mut Project, si: usize,
             _ => None,
         };
         let (_, t) = phone::fit_area(ui.ctx(), "design_phone_area", canvas, total, |ui| {
-            let mut shell = phone::shell_begin(ui, &title);
+            // the first screen opens the app; the others open from it, with a back button
+            let mut shell = match &below {
+                Some(b) => {
+                    let t = if b.title.is_empty() { app_name.clone() } else { b.title.clone() };
+                    let mut sh = phone::shell_begin(ui, &t, &b.app_bar, false);
+                    phone::draw_still(ui, sh.content, b, &files);
+                    phone::sheet_begin(ui, &mut sh, sheet);
+                    sh
+                }
+                None => phone::shell_begin(ui, &title, &screen.app_bar, si > 0),
+            };
             shell.bottom = phone::bottom_color(screen, &states);
             let content = shell.content;
             phone_content = content;
             {
-                let mut cx = phone::Ctx { screen, states: &mut states, mode: Mode::Design, selected: st.selected.as_deref(), dragging: dragging_id.as_deref(), out: &mut out, time: 0.0, files: &files };
+                let mut cx = phone::Ctx { screen, states: &mut states, mode: Mode::Design, selected: st.selected.as_deref(), dragging: dragging_id.as_deref(), out: &mut out, files: &files };
                 phone::draw_screen(ui, content, &mut cx);
             }
             if screen.widgets.is_empty() && st.drag.is_none() {
@@ -633,9 +646,14 @@ fn swatch(p: &Painter, r: Rect, v: u32, round: f32) {
 /// One colour property: a swatch with its hex value that opens a popup of
 /// the preset colours and a full picker.
 fn color_edit(ui: &mut Ui, label: &str, c: &mut u32) -> bool {
+    color_edit_or(ui, label, c, "none")
+}
+
+/// `color_edit` whose empty colour reads `empty` ("default" for the app bar).
+fn color_edit_or(ui: &mut Ui, label: &str, c: &mut u32, empty: &str) -> bool {
     let mut ch = false;
     ui.label(label);
-    let text = if *c >> 24 == 0 { "none".to_string() } else if *c >> 24 == 0xFF { format!("#{:06X}", *c & 0xFF_FFFF) } else { format!("#{:08X}", *c) };
+    let text = if *c >> 24 == 0 { empty.to_string() } else if *c >> 24 == 0xFF { format!("#{:06X}", *c & 0xFF_FFFF) } else { format!("#{:08X}", *c) };
     let resp = ui.add(Button::new(RichText::new(format!("      {text}")).monospace().size(12.5)).min_size(vec2(120.0, 24.0)));
     swatch(ui.painter(), Rect::from_min_size(resp.rect.left_center() + vec2(6.0, -7.0), vec2(22.0, 14.0)), *c, 3.0);
     let pid = ui.make_persistent_id(("colour_popup", label));
@@ -671,6 +689,55 @@ fn color_edit(ui: &mut Ui, label: &str, c: &mut u32) -> bool {
     ch
 }
 
+/// The app bar's icon buttons: pick an icon, give it a label, or remove it.
+/// Each one's "when clicked" event is in the Logic tab's Add event.
+fn bar_actions(ui: &mut Ui, screen: &mut Screen) -> bool {
+    let mut changed = false;
+    prop_section(ui, "App bar buttons");
+    let mut remove = None;
+    for i in 0..screen.app_bar.actions.len() {
+        let a = screen.app_bar.actions[i].clone();
+        ui.horizontal(|ui| {
+            let (glyph, _) = bar_icon(&a.icon);
+            let mut icon = a.icon.clone();
+            ComboBox::from_id_salt(("bar_icon", i)).width(46.0).selected_text(RichText::new(glyph.to_string()).size(16.0)).show_ui(ui, |ui| {
+                ui.set_min_width(170.0);
+                for (name, c, _) in BAR_ICONS {
+                    ui.selectable_value(&mut icon, name.to_string(), format!("{c}   {name}"));
+                }
+            });
+            if icon != a.icon {
+                // an untouched button takes its new icon's name
+                let has_event = screen.events.iter().any(|e| e.target == a.id);
+                let act = &mut screen.app_bar.actions[i];
+                act.icon = icon.clone();
+                if !has_event {
+                    act.id = String::new();
+                    let id = screen.next_action_id(&icon);
+                    screen.app_bar.actions[i].id = id;
+                }
+                changed = true;
+            }
+            let act = &mut screen.app_bar.actions[i];
+            changed |= ui.add(TextEdit::singleline(&mut act.label).hint_text("Label").desired_width(ui.available_width() - 30.0)).on_hover_text(format!("{}: read aloud by screen readers; Android shows it on a long press", act.id)).changed();
+            if ui.add(Button::new(crate::icons::X).frame(false)).on_hover_text("Remove this button and its event").clicked() {
+                remove = Some(i);
+            }
+        });
+    }
+    if let Some(i) = remove {
+        let id = screen.app_bar.actions.remove(i).id;
+        screen.events.retain(|e| e.target != id);
+        changed = true;
+    }
+    if ui.button(format!("{}  Add button", crate::icons::PLUS)).on_hover_text("An icon button on the right of the bar. Program it in Logic: Add event › When … is clicked").clicked() {
+        let id = screen.next_action_id("search");
+        screen.app_bar.actions.push(BarAction { id, icon: "search".into(), label: "Search".into() });
+        changed = true;
+    }
+    changed
+}
+
 /// A section heading in the inspector.
 fn prop_section(ui: &mut Ui, title: &str) {
     ui.add_space(8.0);
@@ -683,7 +750,7 @@ fn prop_grid(ui: &mut Ui, id: &str, add: impl FnOnce(&mut Ui)) {
     Grid::new(id).num_columns(2).min_col_width(70.0).spacing(vec2(8.0, 8.0)).show(ui, add);
 }
 
-fn properties(ui: &mut Ui, st: &mut DesignState, screen: &mut Screen, images: &[String], fonts: &[String], videos: &[String]) -> bool {
+fn properties(ui: &mut Ui, st: &mut DesignState, screen: &mut Screen, first: bool, images: &[String], fonts: &[String], videos: &[String]) -> bool {
     let mut changed = false;
     let Some(sel) = st.selected.clone() else {
         panel_title(ui, "Screen");
@@ -693,6 +760,43 @@ fn properties(ui: &mut Ui, st: &mut DesignState, screen: &mut Screen, images: &[
                 changed = true;
             }
             ui.end_row();
+            ui.label("Opens as");
+            let name = |sh: Sheet| match sh {
+                Sheet::No => "Full screen",
+                Sheet::Half => "Bottom sheet, half",
+                Sheet::Full => "Bottom sheet, tall",
+            };
+            if first {
+                ui.label(RichText::new("Full screen (the app starts here)").color(crate::theme::gray(130)));
+            } else {
+                ComboBox::from_id_salt("opens_as").selected_text(name(screen.sheet)).show_ui(ui, |ui| {
+                    for sh in [Sheet::No, Sheet::Half, Sheet::Full] {
+                        changed |= ui.selectable_value(&mut screen.sheet, sh, name(sh)).changed();
+                    }
+                }).response.on_hover_text("A bottom sheet slides up over the screen that opens it (open screen block). Close this screen, or a tap above it, closes it.");
+            }
+            ui.end_row();
+            // a sheet has no app bar
+            if first || screen.sheet == Sheet::No {
+            ui.label("App bar");
+            let mut show = !screen.app_bar.hidden;
+            if ui.checkbox(&mut show, "Show").changed() {
+                screen.app_bar.hidden = !show;
+                changed = true;
+            }
+            ui.end_row();
+            if !screen.app_bar.hidden {
+                changed |= color_edit_or(ui, "Bar colour", &mut screen.app_bar.color, "default");
+                changed |= color_edit_or(ui, "Title colour", &mut screen.app_bar.title_color, "default");
+                ui.label("Back");
+                let mut back = !screen.app_bar.no_back;
+                if ui.checkbox(&mut back, "Back button").on_hover_text("On a screen opened from another, the bar has a back arrow").changed() {
+                    screen.app_bar.no_back = !back;
+                    changed = true;
+                }
+                ui.end_row();
+            }
+            }
             ui.label("Widgets");
             ui.label(format!("{}", screen.widgets.len()));
             ui.end_row();
@@ -700,6 +804,9 @@ fn properties(ui: &mut Ui, st: &mut DesignState, screen: &mut Screen, images: &[
             ui.label(format!("{}", screen.events.len()));
             ui.end_row();
         });
+        if !screen.app_bar.hidden && (first || screen.sheet == Sheet::No) {
+            changed |= bar_actions(ui, screen);
+        }
         ui.add_space(14.0);
         ui.label(RichText::new("Select a widget on the phone or in the outline to change how it looks.").color(crate::theme::gray(130)));
         return changed;
@@ -1003,7 +1110,7 @@ mod tests {
         let mut st = DesignState::default();
         let ctx = Context::default();
         let mut frame = |events: Vec<egui::Event>, t: f64| {
-            let input = RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1600.0, 1100.0))), events, time: Some(t), ..Default::default() };
+            let input = RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1600.0, 1100.0))), max_texture_side: Some(4096), events, time: Some(t), ..Default::default() };
             let _ = ctx.run(input, |ctx| {
                 CentralPanel::default().show(ctx, |ui| {
                     show(ui, &mut st, &mut project, 0, Some(Play { rt: &mut rt }));
@@ -1039,7 +1146,7 @@ mod tests {
         let t = std::cell::Cell::new(0.0);
         let frame = |events: Vec<egui::Event>, st: &mut DesignState, project: &mut Project| {
             t.set(t.get() + 0.05);
-            let input = RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1600.0, 1100.0))), events, time: Some(t.get()), ..Default::default() };
+            let input = RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1600.0, 1100.0))), max_texture_side: Some(4096), events, time: Some(t.get()), ..Default::default() };
             let _ = ctx.run(input, |ctx| {
                 CentralPanel::default().show(ctx, |ui| {
                     show(ui, st, project, 0, None);
@@ -1118,7 +1225,7 @@ mod tests {
         let mut st = DesignState::default();
         let ctx = Context::default();
         for k in 0..6 {
-            let input = RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1600.0, 1100.0))), time: Some(k as f64 * 0.1), ..Default::default() };
+            let input = RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1600.0, 1100.0))), max_texture_side: Some(4096), time: Some(k as f64 * 0.1), ..Default::default() };
             let _ = ctx.run(input, |ctx| {
                 CentralPanel::default().show(ctx, |ui| {
                     show(ui, &mut st, &mut project, 0, Some(Play { rt: &mut rt }));

@@ -38,6 +38,7 @@ The server is off by default, it listens only on this computer, and it works onl
 | `list_projects`, `create_project`, `open_project` | Find, make and open projects |
 | `get_screen` | Read a screen: its widget tree, variables, components and events |
 | `add_screen` | Add a screen, blank or from a template |
+| `update_screen` | Set a screen's title, its app bar (shown or hidden, colours, back button, icon buttons) and whether it opens as a bottom sheet |
 | `add_widget`, `update_widget`, `move_widget`, `delete_widget` | Build the layout (`add_widget` can add a whole tree at once) |
 | `add_variable`, `add_component` | Add what the blocks need |
 | `list_blocks`, `set_event_blocks`, `set_more_block` | Program events and reusable blocks |

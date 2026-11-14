@@ -364,6 +364,19 @@ const TOOLS: &[ToolDef] = &[
     ("get_screen", "Read a screen", "A screen's widget tree with every property, its variables, lists, components and events with their blocks (in the same JSON set_event_blocks takes).", || json!({
         "project_id": pid(), "screen": scr(),
     }), &["project_id"], true),
+    ("update_screen", "Change a screen", "Sets a screen's title and its app bar (the bar at the top with the title). \
+Colours are \"#RRGGBB\", or \"default\" for the phone's own look: the theme colour with a white title on Android, the system bar on iPhone. \
+A title colour left as default is white or black, whichever reads on the bar.", || json!({
+        "project_id": pid(), "screen": scr(),
+        "title": {"type": "string", "description": "The bar's title; empty shows the app's name"},
+        "app_bar": {"type": "boolean", "description": "false hides the bar: the screen starts right under the status bar"},
+        "bar_color": {"type": "string"},
+        "title_color": {"type": "string"},
+        "back_button": {"type": "boolean", "description": "false: no back arrow, even when the screen was opened from another (the phone's back still works)"},
+        "opens_as": {"type": "string", "enum": ["page", "half_sheet", "full_sheet"], "description": "page: a whole screen (default); half_sheet / full_sheet: a bottom sheet that slides up over the screen that opens it (openScreen), half or nearly all of the phone's height, and closes with finishActivity or a tap above it. A sheet has no app bar. Not for the first screen."},
+        "actions": {"type": "array", "items": {"type": "object"}, "description": "Icon buttons on the right of the bar, replacing the ones there: [{\"icon\": \"search\", \"label\": \"Search\", \"id\": optional}]. \
+Icons: search, add, edit, delete, share, done, close, refresh, settings, info, help, more, menu, filter, favorite, star, bookmark, notifications, person, home, cart, camera, send, mail, phone, calendar, download, logout. Each button's id (default: icon + \"Button\", e.g. searchButton) takes an onClick event through set_event_blocks; buttons kept by id keep their events."},
+    }), &["project_id"], false),
     ("link_supabase", "Link Supabase", "Links the project to a Supabase project, for the Supabase blocks (sign up, sign in, table rows). \
 The URL and the public (anon or publishable) key are in the Supabase dashboard under Project Settings → API; never the secret / service_role key. \
 An empty url unlinks.", || json!({
@@ -1104,10 +1117,25 @@ pub(crate) fn parse_stack(v: Option<&Value>, s: &Screen, screens: &crate::blocks
     Ok(out)
 }
 
+fn opens_as(sh: Sheet) -> &'static str {
+    match sh {
+        Sheet::No => "page",
+        Sheet::Half => "half_sheet",
+        Sheet::Full => "full_sheet",
+    }
+}
+
+fn app_bar_json(b: &AppBar) -> Value {
+    let c = |c: u32| if c == 0 { "default".to_string() } else { color_json(c) };
+    json!({"shown": !b.hidden, "bar_color": c(b.color), "title_color": c(b.title_color), "back_button": !b.no_back,
+        "actions": b.actions.iter().map(|a| json!({"id": a.id, "icon": a.icon, "label": a.label})).collect::<Vec<_>>()})
+}
+
 fn screen_json(p: &Project, s: &Screen) -> Value {
     json!({
         "project": {"id": p.id, "app_name": p.app_name, "package": p.package},
         "screen": s.name, "activity": s.activity_name(),
+        "title": s.title, "app_bar": app_bar_json(&s.app_bar), "opens_as": opens_as(p.sheet_of(s)),
         "other_screens": p.screens.iter().filter(|o| o.name != s.name).map(|o| o.name.clone()).collect::<Vec<_>>(),
         "widgets": s.children("root").into_iter().map(|i| widget_json(s, &s.widgets[i])).collect::<Vec<_>>(),
         "variables": s.vars.iter().map(|v| json!({"name": v.name, "type": v.ty.label().to_lowercase()})).collect::<Vec<_>>(),
@@ -1305,6 +1333,69 @@ fn project_tool(p: &mut Project, tool: &str, a: &Value) -> Option<R<Value>> {
             s.remove_widget(id);
             Ok(json!({"deleted": n - s.widgets.len()}))
         })(),
+        "update_screen" => (|| {
+            let bar_color = |k: &str| -> R<Option<u32>> {
+                let Some(v) = a.get(k) else { return Ok(None) };
+                if v.as_str().is_some_and(|t| t.trim().is_empty() || t.trim().eq_ignore_ascii_case("default")) {
+                    return Ok(Some(0));
+                }
+                Ok(Some(parse_color(v)? | 0xFF00_0000))
+            };
+            let flag = |k: &str| -> R<Option<bool>> {
+                a.get(k).map(|v| v.as_bool().ok_or_else(|| format!("\"{k}\" is true or false, not {v}"))).transpose()
+            };
+            let (color, title_color, show, back) = (bar_color("bar_color")?, bar_color("title_color")?, flag("app_bar")?, flag("back_button")?);
+            if let Some(t) = a.get("title") {
+                s.title = t.as_str().ok_or_else(|| format!("\"title\" is text, not {t}"))?.to_string();
+            }
+            if let Some(v) = a.get("opens_as") {
+                let sheet = match v.as_str().unwrap_or("") {
+                    "page" => Sheet::No,
+                    "half_sheet" => Sheet::Half,
+                    "full_sheet" => Sheet::Full,
+                    _ => return Err(format!("\"opens_as\" is page, half_sheet or full_sheet, not {v}")),
+                };
+                if si == 0 && sheet != Sheet::No {
+                    return Err("The first screen is where the app starts, so it can't be a bottom sheet".into());
+                }
+                s.sheet = sheet;
+            }
+            if let Some(list) = a.get("actions") {
+                let list = list.as_array().ok_or("\"actions\" is a list of {\"icon\", \"label\", \"id\"}")?;
+                let old = std::mem::take(&mut s.app_bar.actions);
+                let mut made: Vec<BarAction> = vec![];
+                for (i, item) in list.iter().enumerate() {
+                    let back = |s: &mut Screen| s.app_bar.actions = old.clone();
+                    let icon = item.get("icon").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+                    if !BAR_ICONS.iter().any(|(n, _, _)| *n == icon) {
+                        back(s);
+                        return Err(format!("actions[{i}]: \"{icon}\" isn't an icon; they are {}", BAR_ICONS.iter().map(|(n, _, _)| *n).collect::<Vec<_>>().join(", ")));
+                    }
+                    let label = item.get("label").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    s.app_bar.actions = made.clone();
+                    let id = match item.get("id").and_then(|v| v.as_str()).map(str::trim).filter(|t| !t.is_empty()) {
+                        Some(id) => {
+                            if let Some(e) = crate::logic::name_problem(s, id) {
+                                back(s);
+                                return Err(format!("actions[{i}]: can't call it \"{id}\": {e}"));
+                            }
+                            id.to_string()
+                        }
+                        None => s.next_action_id(&icon),
+                    };
+                    made.push(BarAction { id, icon, label });
+                }
+                // events of buttons that are gone go too
+                s.events.retain(|e| !old.iter().any(|o| o.id == e.target) || made.iter().any(|m| m.id == e.target));
+                s.app_bar.actions = made;
+            }
+            let b = &mut s.app_bar;
+            if let Some(c) = color { b.color = c }
+            if let Some(c) = title_color { b.title_color = c }
+            if let Some(v) = show { b.hidden = !v }
+            if let Some(v) = back { b.no_back = !v }
+            Ok(json!({"title": s.title, "app_bar": app_bar_json(&s.app_bar), "opens_as": opens_as(s.sheet)}))
+        })(),
         "add_variable" => (|| {
             let n = need_str(a, "name")?.trim().to_string();
             let t = var_type(need_str(a, "type")?)?;
@@ -1384,10 +1475,17 @@ fn project_tool(p: &mut Project, tool: &str, a: &Value) -> Option<R<Value>> {
                     return Err(format!("The screen's events are onCreate and onBackPressed, not {event}"));
                 }
             } else {
-                let w = s.widget(target).ok_or_else(|| format!("No widget \"{target}\" on this screen"))?;
-                if !w.kind.events().contains(&event) {
+                if s.action(target).is_some() {
+                    if event != "onClick" {
+                        return Err(format!("An app bar button's event is onClick, not {event}"));
+                    }
+                } else if let Some(w) = s.widget(target) {
+                    if !w.kind.events().contains(&event) {
                     let has = w.kind.events();
                     return Err(if has.is_empty() { format!("A {} has no events", kind_name(w.kind)) } else { format!("A {}'s events are {}", kind_name(w.kind), has.join(", ")) });
+                    }
+                } else {
+                    return Err(format!("No widget or app bar button \"{target}\" on this screen"));
                 }
             }
             let list = a.get("blocks").ok_or("\"blocks\" is needed (a list; [] empties the event)")?;
@@ -1656,6 +1754,54 @@ mod tests {
         // nothing changed
         let s = &st.projects[0].screens[0];
         assert!(s.events.iter().find(|e| e.target == "button1").unwrap().blocks.len() > 1);
+    }
+
+    #[test]
+    fn screen_title_and_app_bar() {
+        let mut st = store();
+        let r = call(&mut st, "update_screen", json!({"project_id": 601, "title": "Notes", "bar_color": "#FFFFFF", "back_button": false})).unwrap();
+        assert_eq!(r["app_bar"], json!({"shown": true, "bar_color": "#FFFFFF", "title_color": "default", "back_button": false, "actions": []}));
+        let b = &st.projects[0].screens[0].app_bar;
+        assert_eq!((b.color, b.no_back), (0xFFFF_FFFF, true));
+        // a white bar gets a dark title
+        assert_eq!(b.title(false), 0xFF11_1111);
+        let g = call(&mut st, "get_screen", json!({"project_id": 601})).unwrap();
+        assert_eq!((g["title"].as_str(), g["app_bar"]["bar_color"].as_str()), (Some("Notes"), Some("#FFFFFF")));
+        call(&mut st, "update_screen", json!({"project_id": 601, "bar_color": "default", "app_bar": false})).unwrap();
+        let b = &st.projects[0].screens[0].app_bar;
+        assert_eq!((b.color, b.hidden), (0, true));
+        assert!(call(&mut st, "update_screen", json!({"project_id": 601, "title_color": "red"})).is_err());
+    }
+
+    #[test]
+    fn app_bar_buttons_and_their_events() {
+        let mut st = store();
+        let r = call(&mut st, "update_screen", json!({"project_id": 601, "actions": [{"icon": "search", "label": "Search"}, {"icon": "add", "id": "newNote"}]})).unwrap();
+        assert_eq!(r["app_bar"]["actions"][0]["id"], "searchButton");
+        assert_eq!(r["app_bar"]["actions"][1]["id"], "newNote");
+        call(&mut st, "set_event_blocks", json!({"project_id": 601, "target": "newNote", "event": "onClick", "blocks": [{"op": "doToast", "args": ["New"]}]})).unwrap();
+        let e = call(&mut st, "set_event_blocks", json!({"project_id": 601, "target": "newNote", "event": "onLongClick", "blocks": []})).unwrap_err();
+        assert!(e.contains("onClick"), "{e}");
+        // bad icons and taken names change nothing
+        assert!(call(&mut st, "update_screen", json!({"project_id": 601, "actions": [{"icon": "rocket"}]})).unwrap_err().contains("isn't an icon"));
+        assert!(call(&mut st, "update_screen", json!({"project_id": 601, "actions": [{"icon": "add", "id": "button1"}]})).unwrap_err().contains("already used"));
+        assert_eq!(st.projects[0].screens[0].app_bar.actions.len(), 2);
+        // keeping a button by id keeps its event; dropping one drops it
+        call(&mut st, "update_screen", json!({"project_id": 601, "actions": [{"icon": "add", "id": "newNote"}]})).unwrap();
+        assert!(st.projects[0].screens[0].events.iter().any(|e| e.target == "newNote"));
+        call(&mut st, "update_screen", json!({"project_id": 601, "actions": []})).unwrap();
+        assert!(!st.projects[0].screens[0].events.iter().any(|e| e.target == "newNote"));
+    }
+
+    #[test]
+    fn screens_open_as_sheets() {
+        let mut st = store();
+        call(&mut st, "add_screen", json!({"project_id": 601, "name": "picker"})).unwrap();
+        let r = call(&mut st, "update_screen", json!({"project_id": 601, "screen": "picker", "opens_as": "half_sheet"})).unwrap();
+        assert_eq!(r["opens_as"], "half_sheet");
+        assert_eq!(call(&mut st, "get_screen", json!({"project_id": 601, "screen": "picker"})).unwrap()["opens_as"], "half_sheet");
+        assert!(call(&mut st, "update_screen", json!({"project_id": 601, "opens_as": "full_sheet"})).unwrap_err().contains("first screen"));
+        assert!(call(&mut st, "update_screen", json!({"project_id": 601, "screen": "picker", "opens_as": "popup"})).is_err());
     }
 
     #[test]
