@@ -24,7 +24,15 @@
 
 ## Getting started
 
-Blockwise is a desktop app written in Rust. Until there are ready-made downloads, build it from source:
+### Download
+
+Get Blockwise for macOS, Windows or Linux from the [latest release](https://github.com/aabouqas/Blockwise/releases/latest):
+
+- **macOS 11 or later** (Apple silicon and Intel): open the `.dmg` and drag Blockwise into Applications. The app isn't signed with an Apple Developer ID yet, so the first time, macOS won't open it: go to **System Settings › Privacy & Security** and press **Open Anyway**.
+- **Windows:** unzip it and run `Blockwise.exe`. If SmartScreen warns you, press **More info**, then **Run anyway**.
+- **Linux** (x86_64): unpack the `.tar.gz` and run `Blockwise`.
+
+### Build from source
 
 1. Install Rust from [rustup.rs](https://rustup.rs).
 2. Get the code and build it:

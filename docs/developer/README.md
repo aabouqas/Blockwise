@@ -12,6 +12,7 @@ Everything a developer needs to understand Blockwise's code and start changing i
 | [The MCP server](mcp.md) | change what AI assistants can do |
 | [Testing](testing.md) | run, write and debug tests, and make screenshots |
 | [Recipes](recipes.md) | add a block, a widget setting, a widget, an event, an MCP tool or a template, step by step |
+| [Releasing](releasing.md) | make a release with downloads for macOS, Windows and Linux |
 
 ## Getting set up
 

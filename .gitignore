@@ -9,3 +9,6 @@ target/
 
 .DS_Store
 *.swp
+
+# release packages made by app/package.sh
+/app/dist/

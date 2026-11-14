@@ -1,0 +1,95 @@
+# Makes a GitHub Release when a version tag is pushed:
+#
+#   git tag v0.1.0 && git push origin v0.1.0
+#
+# It tests and packages Blockwise for macOS, Linux and Windows, then opens a
+# draft release with the three downloads and notes written from the commits.
+# Check the draft on the Releases page and press Publish.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - name: macOS
+            os: macos-latest
+            system: macos
+            targets: aarch64-apple-darwin,x86_64-apple-darwin
+          # the oldest supported Ubuntu, so the build runs on older Linux too
+          - name: Linux
+            os: ubuntu-22.04
+            system: linux
+          - name: Windows
+            os: windows-latest
+            system: windows
+    defaults:
+      run:
+        working-directory: app
+        shell: bash
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the tag matches Cargo.toml
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::The tag is $GITHUB_REF_NAME but app/Cargo.toml says version $version. Change one so they match."
+            exit 1
+          fi
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.targets }}
+
+      - name: Install Linux libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libwayland-dev
+
+      - name: Test
+        run: cargo test --release --locked
+
+      - name: Package
+        run: ./package.sh ${{ matrix.system }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ matrix.system }}
+          path: app/dist/*
+          if-no-files-found: error
+
+  release:
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Make the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -l dist
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Blockwise ${GITHUB_REF_NAME#v}" \
+            --generate-notes \
+            --draft

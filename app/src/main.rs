@@ -1,6 +1,9 @@
 //! Blockwise — a desktop app builder: design screens, snap logic blocks together,
 //! try the app in a pretend phone and export its Android source.
 
+// release builds on Windows open no console window next to the app
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 mod android_setup;
 mod app;
 mod asset_view;

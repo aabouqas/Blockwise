@@ -81,6 +81,7 @@ All in `app/src/`.
 | [The MCP server](developer/mcp.md) | AI assistants |
 | [Testing](developer/testing.md) | unit, UI, screenshot and phone tests |
 | [Recipes](developer/recipes.md) | adding blocks, settings, widgets, events, tools |
+| [Releasing](developer/releasing.md) | tags, downloads, signing |
 
 ## Building and testing
 
