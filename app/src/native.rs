@@ -528,6 +528,10 @@ pub fn kotlin_with(p: &Project, s: &Screen, trace: bool) -> String {
         src.push_str(&format!("window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, (resources.displayMetrics.heightPixels * {}).toInt())\nwindow.setGravity(Gravity.BOTTOM)\nsetFinishOnTouchOutside(true)\n", sheet.height()));
     }
     src.push_str("initialize()\ninitializeLogic()\n}\n\n");
+    if sheet != Sheet::No {
+        // drag it down to close it (AppUtil.kt)
+        src.push_str("private val sheetDrag by lazy { SheetDrag(this) }\n\noverride fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean = sheetDrag.dispatch(ev) { super.dispatchTouchEvent(it) }\n\n");
+    }
     let barless = s.app_bar.hidden || sheet != Sheet::No;
     let actions: &[BarAction] = if barless { &[] } else { &s.app_bar.actions };
     if !actions.is_empty() {
@@ -2503,7 +2507,95 @@ object AppUtil {{
 "#,
         p.package
     ) + &supa_kotlin(p)
+        + if p.screens.iter().any(|s| p.sheet_of(s) != Sheet::No) { SHEET_DRAG } else { "" }
 }
+
+/// Dragging a bottom sheet down closes it, as on iPhone: the sheet follows
+/// the finger, closes past 30% of its height or on a flick down, and goes
+/// back up otherwise. A list or scroll view inside scrolls back to its top
+/// before the sheet moves.
+const SHEET_DRAG: &str = r#"
+/** Lets a bottom sheet screen be dragged down to close it. */
+class SheetDrag(private val activity: Activity) {
+    private val slop = android.view.ViewConfiguration.get(activity).scaledTouchSlop
+    private val flick = 1000 * activity.resources.displayMetrics.density
+    private val dim = 0.32f
+    private var downX = 0f
+    private var downY = 0f
+    private var canDrag = false
+    private var dragging = false
+    private var tracker: android.view.VelocityTracker? = null
+    private val sheet get() = activity.window.decorView
+
+    /** From the activity's dispatchTouchEvent; `pass` hands the event on. */
+    fun dispatch(ev: android.view.MotionEvent, pass: (android.view.MotionEvent) -> Boolean): Boolean {
+        val raw = android.view.MotionEvent.obtain(ev).apply { setLocation(ev.rawX, ev.rawY) }
+        when (ev.actionMasked) {
+            android.view.MotionEvent.ACTION_DOWN -> {
+                downX = ev.rawX
+                downY = ev.rawY
+                dragging = false
+                val at = IntArray(2).also { sheet.getLocationOnScreen(it) }
+                canDrag = ev.rawY >= at[1] && !scrollsUp(activity.findViewById(android.R.id.content), ev.rawX, ev.rawY)
+                tracker?.recycle()
+                tracker = android.view.VelocityTracker.obtain()
+            }
+            android.view.MotionEvent.ACTION_MOVE -> {
+                val dy = ev.rawY - downY
+                if (!dragging && canDrag && dy > slop && dy > Math.abs(ev.rawX - downX)) {
+                    dragging = true
+                    // the button or field under the finger lets go
+                    val cancel = android.view.MotionEvent.obtain(ev).apply { action = android.view.MotionEvent.ACTION_CANCEL }
+                    pass(cancel)
+                    cancel.recycle()
+                }
+                if (dragging) move(Math.max(0f, dy - slop))
+            }
+        }
+        tracker?.addMovement(raw)
+        raw.recycle()
+        if (!dragging) return pass(ev)
+        val end = ev.actionMasked == android.view.MotionEvent.ACTION_UP || ev.actionMasked == android.view.MotionEvent.ACTION_CANCEL
+        if (end) {
+            dragging = false
+            val t = tracker
+            t?.computeCurrentVelocity(1000)
+            val speed = t?.yVelocity ?: 0f
+            t?.recycle()
+            tracker = null
+            if (ev.actionMasked == android.view.MotionEvent.ACTION_UP && (sheet.translationY > sheet.height * 0.3f || speed > flick)) close() else back()
+        }
+        return true
+    }
+
+    private fun move(y: Float) {
+        sheet.translationY = y
+        activity.window.setDimAmount(dim * (1f - y / Math.max(1, sheet.height)).coerceIn(0f, 1f))
+    }
+
+    private fun back() {
+        sheet.animate().translationY(0f).setDuration(180).setUpdateListener { move(sheet.translationY) }.start()
+    }
+
+    private fun close() {
+        sheet.animate().translationY(sheet.height.toFloat()).setDuration(160).setUpdateListener { move(sheet.translationY) }.withEndAction {
+            // already off the screen: no closing slide
+            activity.window.setWindowAnimations(0)
+            activity.finish()
+        }.start()
+    }
+
+    /** Whether a view under the point can still scroll up. */
+    private fun scrollsUp(v: android.view.View?, x: Float, y: Float): Boolean {
+        if (v == null || v.visibility != android.view.View.VISIBLE) return false
+        val at = IntArray(2).also { v.getLocationOnScreen(it) }
+        if (x < at[0] || x > at[0] + v.width || y < at[1] || y > at[1] + v.height) return false
+        if (v.canScrollVertically(-1)) return true
+        if (v is android.view.ViewGroup) for (i in 0 until v.childCount) if (scrollsUp(v.getChildAt(i), x, y)) return true
+        return false
+    }
+}
+"#;
 
 /// The Supabase helper, with the linked project's address and key.
 fn supa_kotlin(p: &Project) -> String {

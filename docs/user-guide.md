@@ -62,7 +62,7 @@ On iPhone the back button is the system's, so it keeps its own colour.
 
 Any screen but the first can open as a bottom sheet: a panel that slides up over the screen that opens it, which stays dimmed above. In the screen's settings set **Opens as** to *Bottom sheet, half* (half the phone's height) or *Bottom sheet, tall* (nearly all of it). Design it like any screen; a sheet has no app bar.
 
-Open it with the *open screen* block. *Close this screen* closes it, and so does a tap above it, the phone's back, or (on iPhone) pulling it down. Use it for a choice, a short form or details about an item; to send back what was picked, save it with a *saved data* component and read it when the screen below needs it.
+Open it with the *open screen* block. *Close this screen* closes it, and so does a tap above it, the phone's back, or pulling it down, on Android and iPhone alike. A pull that starts on a button closes the sheet without pressing the button; pulling down on a list scrolls it, unless it is already at its top. Use it for a choice, a short form or details about an item; to send back what was picked, save it with a *saved data* component and read it when the screen below needs it.
 
 ## The designer
 

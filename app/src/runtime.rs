@@ -2181,6 +2181,13 @@ pub(crate) mod tests {
         assert!(kt.contains("window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, (resources.displayMetrics.heightPixels * 0.5).toInt())") && kt.contains("setFinishOnTouchOutside(true)"));
         // no app bar on a sheet: no up arrow, no buttons
         assert!(!kt.contains("actionBar") && !kt.contains("onCreateOptionsMenu"));
+        // dragged down to close it, like on iPhone; only sheets, and AppUtil has the helper only when needed
+        assert!(kt.contains("SheetDrag(this)") && kt.contains("override fun dispatchTouchEvent"));
+        assert!(!crate::native::kotlin(&p, &p.screens[0]).contains("SheetDrag"));
+        assert!(crate::native::kotlin_util(&p).contains("class SheetDrag"));
+        let mut flat = p.clone();
+        flat.screens[1].sheet = Sheet::No;
+        assert!(!crate::native::kotlin_util(&flat).contains("SheetDrag"));
         let sw = crate::native::swift_screen(&p, &p.screens[1]);
         assert!(sw.contains(".presentationDetents([.medium])") && sw.contains("router.sheet = nil"));
         assert!(!sw.contains("doneButton") && !sw.contains("StatusBarLook.set"));

@@ -547,13 +547,15 @@ pub fn shell_end(ui: &Ui, sh: &Shell) {
 /// `add` returns and the transform (layer coordinates → window coordinates).
 pub fn fit_area<R>(ctx: &Context, id: &str, canvas: Rect, size: Vec2, add: impl FnOnce(&mut Ui) -> R) -> (Option<R>, emath::TSTransform) {
     let margin = 20.0;
-    let scale = ((canvas.width() - margin * 2.0) / size.x).min((canvas.height() - margin * 2.0) / size.y).clamp(0.35, 1.0);
+    let scale = ((canvas.width() - margin * 2.0) / size.x).min((canvas.height() - margin * 2.0) / size.y).clamp(0.2, 1.0);
     let at = canvas.center() - size * scale / 2.0;
     let t = emath::TSTransform::new(at.to_vec2(), scale);
     let area_id = Id::new(id);
     ctx.set_transform_layer(LayerId::new(Order::Middle, area_id), t);
     let r = Area::new(area_id).order(Order::Middle).fixed_pos(Pos2::ZERO).constrain(false).show(ctx, |ui| {
-        ui.set_clip_rect(Rect::from_min_size(Pos2::ZERO, size + vec2(4.0, 4.0)));
+        // the phone sits on a layer above the panels: keep it inside its own
+        // area, even when the area is too small for it (a tall run dock, say)
+        ui.set_clip_rect(Rect::from_min_size(Pos2::ZERO, size + vec2(4.0, 4.0)).intersect(t.inverse().mul_rect(canvas)));
         add(ui)
     });
     (Some(r.inner), t)
@@ -691,7 +693,8 @@ pub fn picture(ctx: &Context, path: &std::path::Path) -> Option<TextureHandle> {
 /// Draw the whole screen into a content rect.
 pub fn draw_screen(ui: &mut Ui, content: Rect, cx: &mut Ctx) {
     let mut child = ui.new_child(UiBuilder::new().max_rect(content).layout(Layout::top_down(Align::Min)));
-    child.set_clip_rect(content);
+    // within the phone's own clip, which keeps it inside its area
+    child.set_clip_rect(content.intersect(ui.clip_rect()));
     child.spacing_mut().item_spacing = vec2(0.0, 0.0);
     let body = |ui: &mut Ui, cx: &mut Ctx| {
         ui.set_min_size(content.size());
