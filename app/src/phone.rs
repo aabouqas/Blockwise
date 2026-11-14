@@ -326,8 +326,9 @@ pub fn shell_begin(ui: &mut Ui, title: &str, look: &AppBar, back: bool) -> Shell
         fill_screen(p, &a, hole, hole, Color32::WHITE);
         let status = Rect::from_min_size(hole.min, vec2(hole.width(), IOS_STATUS));
         let nav = Rect::from_min_size(status.left_bottom(), vec2(hole.width(), if look.hidden { 0.0 } else { IOS_NAV }));
-        let bar = if look.hidden { 0xFFFF_FFFF } else { look.bar(true) };
-        if !look.hidden {
+        // with no bar, the page's colour (if it has one) goes up behind the status bar
+        let bar = if look.hidden && look.color == 0 { 0xFFFF_FFFF } else { look.bar(true) };
+        if !look.hidden || look.color != 0 {
             fill_screen(p, &a, hole, Rect::from_min_max(hole.min, nav.max), c32(bar));
         }
         // status bar: time on the left, battery on the right, beside the camera cut-out

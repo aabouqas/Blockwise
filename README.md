@@ -22,6 +22,18 @@
 
 ![Blocks of an event, paused on a breakpoint, with the debugger below](docs/images/debug-events.png)
 
+## Examples
+
+Blockwise comes with example apps: open **Examples** in the left column and press **Open a copy**. Here they are running on the Android emulator and the iPhone simulator. Every widget is the phone's own, generated from the same blocks.
+
+| Component Tour | Brain Quiz |
+| :---: | :---: |
+| ![Component Tour on Android and iPhone](examples/component-tour/demo.gif) | ![Brain Quiz on Android and iPhone](examples/brain-quiz/demo.gif) |
+| Every native widget in one app, with app bar buttons, a pop-up, a bottom sheet, a calendar and a list. | Ten questions from a JSON file, a timer, green and red answers, and a saved best score. |
+| [Android app](https://github.com/aabouqas/Blockwise/releases/latest/download/component-tour.apk) | [Android app](https://github.com/aabouqas/Blockwise/releases/latest/download/brain-quiz.apk) |
+
+More about them in [examples](examples/README.md).
+
 ## Getting started
 
 ### Download

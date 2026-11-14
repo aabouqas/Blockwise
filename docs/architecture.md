@@ -57,6 +57,7 @@ All in `app/src/`.
 | `android_setup.rs` | First-run download of Java, the Android SDK, Gradle and an emulator, with consent |
 | `mcp.rs` | The MCP server for AI assistants, and the `--mcp` stdio bridge |
 | `templates.rs` | Ready-made screens (log in, sign up, settings, list, Supabase log in) |
+| `examples.rs` | The example apps built into Blockwise from `examples/`, and adding a copy to the projects |
 | `asset_view.rs`, `player.rs` | The Assets page's viewer and media player (AVFoundation on macOS) |
 | `viewer.rs`, `highlight.rs` | The code page and build log: settings and syntax colours |
 | `menu.rs` | The macOS menu bar |

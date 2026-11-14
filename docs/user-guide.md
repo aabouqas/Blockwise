@@ -27,6 +27,8 @@ The **Projects** page lists your apps. Click **New project** (⌘N) and give it:
 
 Each project's **⋯** menu has *Project settings*, *Back up* (one file holding the whole project, saved in `Documents/Blockwise backups`), *Export source* and *Duplicate*. Search with ⌘F, and switch between grid and list.
 
+The **Examples** page, in the left column, has finished apps to learn from: *Component Tour* (every native widget, app bar buttons, a pop-up and a bottom sheet) and *Brain Quiz* (three screens, a timer, a JSON data file and a saved best score). **Open a copy** adds one to your projects, with its files, and opens it; change it as you like. On the first start Blockwise adds a copy of each. See them running in [examples](../examples/README.md).
+
 Projects are saved in your user data folder (`~/Library/Application Support/Blockwise` on macOS). With **Automatically save** off (the default), leaving a changed project asks whether to keep the changes. ⌘S saves at any time, and ⌘Z / ⇧⌘Z undo and redo.
 
 ## Screens
@@ -42,7 +44,7 @@ An app has one or more screens. The picker at the top left shows the current one
 The bar at the top of a screen, with its title. Click an empty part of the phone (so no widget is selected) and the inspector shows the screen's settings:
 
 - **Title**: what the bar says. Left empty, it shows the app's name. The *set screen title* block changes it while the app runs.
-- **App bar**: untick **Show** for a screen without a bar, such as a game or a splash screen. It then starts right under the status bar.
+- **App bar**: untick **Show** for a screen without a bar, such as a game or a splash screen. It then starts right under the status bar. If the screen's outer layout fills the screen with a colour, the status bar takes that colour too, so a full-colour page reaches the top of the phone.
 - **Bar colour** and **Title colour**: *default* is each phone's own look: the theme colour with a white title on Android, the system bar on iPhone. A title colour left as default is white or black, whichever reads on the bar. On Android the status bar takes a darker shade of the bar.
 - **Back button**: a screen opened from another has a back arrow in its bar. Untick it to leave the arrow out (the phone's own back still works).
 

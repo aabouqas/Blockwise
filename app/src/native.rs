@@ -519,7 +519,7 @@ pub fn kotlin_with(p: &Project, s: &Screen, trace: bool) -> String {
     src.push_str("\noverride fun onCreate(savedInstanceState: Bundle?) {\nsuper.onCreate(savedInstanceState)\n");
     let sheet = p.sheet_of(s);
     if sheet == Sheet::No {
-        src.push_str(&kotlin_app_bar(&s.app_bar));
+        src.push_str(&kotlin_app_bar(&s.look()));
         src.push_str(&format!("setContentView(R.layout.{})\n", s.name));
     } else {
         // a bottom sheet: a window on the lower part of the phone, over the
@@ -885,7 +885,15 @@ fn swift_widget(s: &Screen, w: &Widget, out: &mut String) {
             let call = if has_event(s, id, "onItemSelected") { format!("; m.{id}_onItemSelected(Double($0))") } else { String::new() };
             out.push_str(&format!("Picker(\"\", selection: Binding(get: {{ m.{id}.selected }}, set: {{ m.{id}.selected = $0{call} }})) {{\nForEach(Array(m.{id}.items.enumerated()), id: \\.offset) {{ i, item in\nText(item).tag(i)\n}}\n}}\n.pickerStyle(.menu)\n"));
         }
-        WKind::CheckBox | WKind::Switch => {
+        WKind::CheckBox => {
+            // a button drawing the box from the model itself: a ToggleStyle
+            // with a hand-made binding could draw the box a tap behind
+            let call = if has_event(s, id, "onCheckedChange") { format!("; m.{id}_onCheckedChange(v)") } else { String::new() };
+            out.push_str(&format!("Button {{ let v = !m.{id}.checked; m.{id}.checked = v{call} }} label: {{\nHStack(spacing: 8) {{\nImage(systemName: m.{id}.checked ? \"checkmark.square.fill\" : \"square\")\nText(m.{id}.text)\n}}\n}}\n.buttonStyle(.plain)\n"));
+            out.push_str(&swift_font(w));
+            out.push_str(&format!(".accessibilityAddTraits(m.{id}.checked ? .isSelected : [])\n"));
+        }
+        WKind::Switch => {
             let binding = if has_event(s, id, "onCheckedChange") {
                 format!("Binding(get: {{ m.{id}.checked }}, set: {{ m.{id}.checked = $0; m.{id}_onCheckedChange($0) }})")
             } else {
@@ -893,7 +901,7 @@ fn swift_widget(s: &Screen, w: &Widget, out: &mut String) {
             };
             out.push_str(&format!("Toggle(m.{id}.text, isOn: {binding})\n"));
             out.push_str(&swift_font(w));
-            out.push_str(if w.kind == WKind::CheckBox { ".toggleStyle(CheckBoxStyle())\n" } else { ".toggleStyle(.switch)\n" });
+            out.push_str(".toggleStyle(.switch)\n");
         }
         WKind::CalendarView => {
             out.push_str(&format!("DatePicker(\"\", selection: $m.{id}.date, displayedComponents: .date)\n.datePickerStyle(.graphical)\n.labelsHidden()\n"));
@@ -1094,8 +1102,9 @@ pub fn swift_screen_with(p: &Project, s: &Screen, trace: bool) -> String {
     } else if has_event(s, "", "onBackPressed") {
         src.push_str(".navigationBarBackButtonHidden(true)\n.toolbar {\nToolbarItem(placement: .navigationBarLeading) {\nButton(\"Back\") { m.onBackPressed() }\n}\n}\n");
     }
-    let light = match (s.app_bar.hidden, s.app_bar.color) {
-        (false, c) if c != 0 => if is_light(s.app_bar.bar(true)) { "false" } else { "true" },
+    let look = s.look();
+    let light = match look.color {
+        c if c != 0 => if is_light(if look.hidden { c } else { look.bar(true) }) { "false" } else { "true" },
         _ => "nil",
     };
     if sheet != Sheet::No {
@@ -1112,9 +1121,11 @@ pub fn swift_screen_with(p: &Project, s: &Screen, trace: bool) -> String {
 /// the back button stays the system's (it takes no tint), and the status
 /// bar follows the bar through StatusBarLook.
 fn swift_app_bar(s: &Screen) -> String {
-    let bar = &s.app_bar;
+    let bar = &s.look();
     if bar.hidden {
-        return ".toolbar(.hidden, for: .navigationBar)\n".into();
+        // the page's colour goes on up behind the status bar
+        let under = if bar.color != 0 { format!(".background(Color(argb: 0x{:08X}).ignoresSafeArea())\n", bar.color) } else { String::new() };
+        return format!("{under}.toolbar(.hidden, for: .navigationBar)\n");
     }
     let mut out = String::new();
     if bar.color != 0 {
@@ -1984,19 +1995,6 @@ struct Corners: ViewModifier {
     }
 }
 
-/// A check box (iPhone has none built in).
-struct CheckBoxStyle: ToggleStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        Button { configuration.isOn.toggle() } label: {
-            HStack(spacing: 8) {
-                Image(systemName: configuration.isOn ? "checkmark.square.fill" : "square")
-                configuration.label
-            }
-        }
-        .buttonStyle(.plain)
-    }
-}
-
 /// The short message at the bottom (Android's toast).
 struct ToastView: View {
     let text: String?
@@ -2808,6 +2806,10 @@ fn kotlin_app_bar(bar: &AppBar) -> String {
     out
 }
 
+/// The keyboard stays hidden when a screen opens or comes back (after a
+/// sheet or another screen closes) until a text field is tapped.
+const KEYS: &str = " android:windowSoftInputMode=\"stateAlwaysHidden\"";
+
 /// App settings for the Kotlin project: name, icon, screens, and the first
 /// screen marked as the one the launcher opens.
 pub fn kotlin_manifest(p: &Project) -> String {
@@ -2816,14 +2818,14 @@ pub fn kotlin_manifest(p: &Project) -> String {
         crate::codegen::xml_escape(&p.app_name)
     );
     for (i, s) in p.screens.iter().enumerate() {
-        let theme = match if p.sheet_of(s) != Sheet::No { "Blockwise.Sheet" } else { android_theme(&s.app_bar) } {
+        let theme = match if p.sheet_of(s) != Sheet::No { "Blockwise.Sheet" } else { android_theme(&s.look()) } {
             "Blockwise" => String::new(),
             t => format!(" android:theme=\"@style/{t}\""),
         };
         if i == 0 {
-            out.push_str(&format!("\t\t<activity android:name=\".{}\"{theme} android:exported=\"true\">\n\t\t\t<intent-filter>\n\t\t\t\t<action android:name=\"android.intent.action.MAIN\"/>\n\t\t\t\t<category android:name=\"android.intent.category.LAUNCHER\"/>\n\t\t\t</intent-filter>\n\t\t</activity>\n", s.activity_name()));
+            out.push_str(&format!("\t\t<activity android:name=\".{}\"{theme}{KEYS} android:exported=\"true\">\n\t\t\t<intent-filter>\n\t\t\t\t<action android:name=\"android.intent.action.MAIN\"/>\n\t\t\t\t<category android:name=\"android.intent.category.LAUNCHER\"/>\n\t\t\t</intent-filter>\n\t\t</activity>\n", s.activity_name()));
         } else {
-            out.push_str(&format!("\t\t<activity android:name=\".{}\"{theme}/>\n", s.activity_name()));
+            out.push_str(&format!("\t\t<activity android:name=\".{}\"{theme}{KEYS}/>\n", s.activity_name()));
         }
     }
     // where the camera app writes the photo or video it takes (AppMedia)

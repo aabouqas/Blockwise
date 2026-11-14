@@ -2100,7 +2100,7 @@ pub(crate) mod tests {
         assert!(kt.contains("if (!isTaskRoot) actionBar?.setDisplayHomeAsUpEnabled(true)") && kt.contains("android.R.id.home"));
         assert!(!kt.contains("statusBarColor") && !kt.contains("onTitleChanged"));
         let km = crate::native::kotlin_manifest(&p);
-        assert!(km.contains("android:theme=\"@style/Blockwise\">") && km.contains("<activity android:name=\".SecondActivity\"/>"));
+        assert!(km.contains("android:theme=\"@style/Blockwise\">") && km.contains("<activity android:name=\".SecondActivity\" android:windowSoftInputMode=\"stateAlwaysHidden\"/>"));
         let sw = crate::native::swift_screen(&p, &p.screens[1]);
         assert!(!sw.contains("toolbarBackground") && sw.contains("StatusBarLook.set(light: nil)"));
         // a white bar with a red title and no back arrow
@@ -2121,6 +2121,16 @@ pub(crate) mod tests {
         assert!(crate::native::kotlin_manifest(&p).contains("android:theme=\"@style/Blockwise.NoBar\""));
         assert!(crate::native::swift_screen(&p, &p.screens[1]).contains(".toolbar(.hidden, for: .navigationBar)"));
         assert!(!crate::native::kotlin(&p, &p.screens[1]).contains("actionBar"));
+        // a full-screen page colour shows behind the status bar too
+        let mut page = Widget::new("page".into(), WKind::LinearV, "root".into());
+        page.height = Size::Match;
+        page.bg = 0xFF4F46E5;
+        p.screens[1].widgets.insert(0, page);
+        assert_eq!(p.screens[1].look().status(), 0xFF4F46E5);
+        let kt = crate::native::kotlin(&p, &p.screens[1]);
+        assert!(kt.contains("window.statusBarColor = 0xFF4F46E5.toInt()") && !kt.contains("LIGHT_STATUS_BAR"));
+        let sw = crate::native::swift_screen(&p, &p.screens[1]);
+        assert!(sw.contains(".background(Color(argb: 0xFF4F46E5).ignoresSafeArea())") && sw.contains("StatusBarLook.set(light: true)"));
     }
 
     #[test]
@@ -2166,7 +2176,7 @@ pub(crate) mod tests {
         p.screens[0].sheet = Sheet::Full;
         assert_eq!(p.sheet_of(&p.screens[0]), Sheet::No);
         let km = crate::native::kotlin_manifest(&p);
-        assert!(km.contains("<activity android:name=\".PickerActivity\" android:theme=\"@style/Blockwise.Sheet\"/>") && !km.contains("MainActivity\" android:theme=\"@style/Blockwise.Sheet"));
+        assert!(km.contains("<activity android:name=\".PickerActivity\" android:theme=\"@style/Blockwise.Sheet\" android:windowSoftInputMode=\"stateAlwaysHidden\"/>") && !km.contains("MainActivity\" android:theme=\"@style/Blockwise.Sheet"));
         let kt = crate::native::kotlin(&p, &p.screens[1]);
         assert!(kt.contains("window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, (resources.displayMetrics.heightPixels * 0.5).toInt())") && kt.contains("setFinishOnTouchOutside(true)"));
         // no app bar on a sheet: no up arrow, no buttons

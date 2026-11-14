@@ -261,12 +261,12 @@ pub fn show(ui: &mut Ui, st: &mut DesignState, project: &mut Project, si: usize,
             let mut shell = match &below {
                 Some(b) => {
                     let t = if b.title.is_empty() { app_name.clone() } else { b.title.clone() };
-                    let mut sh = phone::shell_begin(ui, &t, &b.app_bar, false);
+                    let mut sh = phone::shell_begin(ui, &t, &b.look(), false);
                     phone::draw_still(ui, sh.content, b, &files);
                     phone::sheet_begin(ui, &mut sh, sheet);
                     sh
                 }
-                None => phone::shell_begin(ui, &title, &screen.app_bar, si > 0),
+                None => phone::shell_begin(ui, &title, &screen.look(), si > 0),
             };
             shell.bottom = phone::bottom_color(screen, &states);
             let content = shell.content;

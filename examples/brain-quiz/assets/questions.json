@@ -1,0 +1,22 @@
+[
+  {"q": "What is the largest planet in our solar system?", "a": "Saturn", "b": "Jupiter", "c": "Neptune", "d": "Earth", "answer": "2"},
+  {"q": "How many continents are there on Earth?", "a": "Five", "b": "Six", "c": "Seven", "d": "Eight", "answer": "3"},
+  {"q": "Which gas do plants take in from the air?", "a": "Carbon dioxide", "b": "Oxygen", "c": "Nitrogen", "d": "Helium", "answer": "1"},
+  {"q": "What is the capital of Japan?", "a": "Seoul", "b": "Beijing", "c": "Osaka", "d": "Tokyo", "answer": "4"},
+  {"q": "Who painted the Mona Lisa?", "a": "Leonardo da Vinci", "b": "Pablo Picasso", "c": "Vincent van Gogh", "d": "Michelangelo", "answer": "1"},
+  {"q": "What is the longest river in Africa?", "a": "Congo", "b": "Niger", "c": "Nile", "d": "Zambezi", "answer": "3"},
+  {"q": "How many legs does a spider have?", "a": "Six", "b": "Eight", "c": "Ten", "d": "Twelve", "answer": "2"},
+  {"q": "What is the hardest natural substance?", "a": "Gold", "b": "Iron", "c": "Quartz", "d": "Diamond", "answer": "4"},
+  {"q": "Which ocean is the largest?", "a": "Atlantic", "b": "Indian", "c": "Pacific", "d": "Arctic", "answer": "3"},
+  {"q": "What is the boiling point of water at sea level?", "a": "100 °C", "b": "90 °C", "c": "80 °C", "d": "120 °C", "answer": "1"},
+  {"q": "Which planet is known as the Red Planet?", "a": "Venus", "b": "Mars", "c": "Mercury", "d": "Jupiter", "answer": "2"},
+  {"q": "In which country are the ancient pyramids of Giza?", "a": "Mexico", "b": "Peru", "c": "Greece", "d": "Egypt", "answer": "4"},
+  {"q": "How many minutes are in a day?", "a": "1,440", "b": "1,240", "c": "2,400", "d": "1,000", "answer": "1"},
+  {"q": "What is the smallest prime number?", "a": "0", "b": "1", "c": "2", "d": "3", "answer": "3"},
+  {"q": "Which animal is the largest on Earth?", "a": "African elephant", "b": "Blue whale", "c": "Giraffe", "d": "Great white shark", "answer": "2"},
+  {"q": "What is the chemical symbol for gold?", "a": "Go", "b": "Gd", "c": "Ag", "d": "Au", "answer": "4"},
+  {"q": "Which language has the most native speakers?", "a": "Mandarin Chinese", "b": "English", "c": "Spanish", "d": "Hindi", "answer": "1"},
+  {"q": "How many sides does a hexagon have?", "a": "Five", "b": "Seven", "c": "Six", "d": "Eight", "answer": "3"},
+  {"q": "What is the tallest mountain above sea level?", "a": "K2", "b": "Mount Everest", "c": "Kilimanjaro", "d": "Mont Blanc", "answer": "2"},
+  {"q": "What do bees make?", "a": "Milk", "b": "Silk", "c": "Wax only", "d": "Honey", "answer": "4"}
+]

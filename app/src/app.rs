@@ -105,6 +105,32 @@ fn brand_mark(ctx: &Context) -> Option<TextureHandle> {
     t
 }
 
+/// An example's screenshot, loaded once.
+fn example_thumb(ctx: &Context, ex: &crate::examples::Example) -> Option<TextureHandle> {
+    let key = Id::new(("example_thumb", ex.key));
+    if let Some(t) = ctx.data(|d| d.get_temp::<Option<TextureHandle>>(key)) {
+        return t;
+    }
+    let t = image::load_from_memory(ex.thumb).ok().map(|img| {
+        let rgba = img.to_rgba8();
+        let size = [rgba.width() as usize, rgba.height() as usize];
+        ctx.load_texture(format!("example_{}", ex.key), ColorImage::from_rgba_unmultiplied(size, rgba.as_raw()), TextureOptions::LINEAR)
+    });
+    ctx.data_mut(|d| d.insert_temp(key, t.clone()));
+    t
+}
+
+/// An example's project (for its icon), read once.
+fn example_icon(ctx: &Context, ex: &crate::examples::Example) -> std::sync::Arc<Project> {
+    let key = Id::new(("example_project", ex.key));
+    if let Some(p) = ctx.data(|d| d.get_temp::<std::sync::Arc<Project>>(key)) {
+        return p;
+    }
+    let p = std::sync::Arc::new(ex.project());
+    ctx.data_mut(|d| d.insert_temp(key, p.clone()));
+    p
+}
+
 /// "~/x" → the home folder's x.
 fn expand_home(path: &str) -> std::path::PathBuf {
     let path = path.trim();
@@ -268,6 +294,8 @@ pub struct App {
     after_close: Option<crate::menu::Cmd>,
     /// The settings page is showing (⌘, opens and closes it).
     settings_open: bool,
+    /// The examples page is showing (under the settings page and an open project).
+    examples_open: bool,
     /// Projects page: search text, sort by name (else last edited), list view (else grid).
     search: String,
     /// 0 newest first, 1 last edited, 2 name.
@@ -473,10 +501,16 @@ impl App {
             let id = store.next_project;
             store.projects.push(sample_project(id));
             store.next_project += 1;
+            // a first start also gets the example apps
+            if shot.is_none() {
+                for ex in crate::examples::EXAMPLES.iter().rev() {
+                    let _ = crate::examples::add(&mut store, ex);
+                }
+            }
             dirty = true;
         }
         let reopen = if shot.is_none() && store.settings.reopen_last { store.settings.last_project.filter(|id| store.projects.iter().any(|p| p.id == *id)) } else { None };
-        let mut app = App { store, editor: reopen.map(Editor::new), proj_dialog: None, confirm_delete: None, notice: None, dirty, last_save: 0.0, no_save: shot.is_some(), shot, frames: 0, shot_sent: false, settings_open: false, search: String::new(), sort: 0, list_view: false, export: None, menu: None, after_close: None, mcp: None, mcp_err: None, mcp_shot: None };
+        let mut app = App { store, editor: reopen.map(Editor::new), proj_dialog: None, confirm_delete: None, notice: None, dirty, last_save: 0.0, no_save: shot.is_some(), shot, frames: 0, shot_sent: false, settings_open: false, examples_open: false, search: String::new(), sort: 0, list_view: false, export: None, menu: None, after_close: None, mcp: None, mcp_err: None, mcp_shot: None };
         if app.shot.is_none() {
             app.menu = crate::menu::AppMenu::install(&cc.egui_ctx);
         }
@@ -828,6 +862,9 @@ impl App {
             if o == "settings" {
                 app.settings_open = true;
             }
+            if o == "examples" {
+                app.examples_open = true;
+            }
             if o == "exit-ask" {
                 ed.quit_ask = true;
             }
@@ -843,7 +880,7 @@ impl App {
                     d.glyph = "rocket".into();
                 }
             }
-            if !matches!(o.as_str(), "projects" | "projects-list" | "settings" | "export" | "new-project" | "icon-glyph") {
+            if !matches!(o.as_str(), "projects" | "projects-list" | "settings" | "examples" | "export" | "new-project" | "icon-glyph") {
                 app.editor = Some(ed);
             }
         }
@@ -1001,13 +1038,16 @@ impl App {
             ui.add_space(16.0);
             if ui.add_sized([ui.available_width(), 34.0], Button::new(RichText::new(lbl(ic::PLUS, "New project")).color(Color32::WHITE).strong()).fill(PRIMARY).rounding(7.0)).on_hover_text("Make a new app").clicked() {
                 self.settings_open = false;
+                self.examples_open = false;
                 self.new_project_dialog();
             }
             ui.add_space(14.0);
             let count = self.store.projects.len();
-            let rows = [(lbl(ic::FOLDER, " Projects"), format!("{count}"), false), (lbl(ic::SETTINGS, " Settings"), "⌘,".to_string(), true)];
-            for (label, hint, is_settings) in rows.into_iter().filter(|r| !(r.2 && crate::menu::NATIVE)) {
-                let sel = self.settings_open == is_settings;
+            // 0 projects, 1 examples, 2 settings
+            let rows = [(lbl(ic::FOLDER, " Projects"), format!("{count}"), 0), (lbl(ic::LAYOUT, " Examples"), format!("{}", crate::examples::EXAMPLES.len()), 1), (lbl(ic::SETTINGS, " Settings"), "⌘,".to_string(), 2)];
+            let at = if self.settings_open { 2 } else if self.examples_open { 1 } else { 0 };
+            for (label, hint, page) in rows.into_iter().filter(|r| !(r.2 == 2 && crate::menu::NATIVE)) {
+                let sel = at == page;
                 let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 34.0), Sense::click());
                 if sel {
                     ui.painter().rect_filled(r, 6.0, ui.visuals().selection.bg_fill);
@@ -1017,11 +1057,83 @@ impl App {
                 ui.painter().text(r.left_center() + vec2(10.0, 0.0), Align2::LEFT_CENTER, label, FontId::proportional(14.0), crate::theme::ink());
                 ui.painter().text(r.right_center() - vec2(10.0, 0.0), Align2::RIGHT_CENTER, hint, FontId::proportional(12.0), crate::theme::gray(140));
                 if resp.clicked() {
-                    self.settings_open = is_settings;
+                    self.settings_open = page == 2;
+                    self.examples_open = page == 1;
                 }
                 ui.add_space(2.0);
             }
         });
+    }
+
+    /// The Examples page: the apps that come with Blockwise. Opening one adds
+    /// a copy to the projects and opens it.
+    fn examples_page(&mut self, ui: &mut Ui) {
+        use crate::examples::EXAMPLES;
+        let now = ui.input(|i| i.time);
+        self.nav_panel(ui);
+        let mut open: Option<usize> = None;
+        let line = if crate::theme::dark() { Color32::from_rgb(0x33, 0x39, 0x44) } else { Color32::from_rgb(0xDD, 0xE2, 0xEA) };
+        CentralPanel::default().frame(Frame::none().fill(crate::theme::bg()).inner_margin(Margin::symmetric(32.0, 24.0))).show_inside(ui, |ui| {
+            ui.label(RichText::new("Examples").size(24.0).strong());
+            ui.label(RichText::new("Apps made with Blockwise. Open one to see how it's built, change it, and run it on a phone.").color(crate::theme::gray(130)));
+            ui.add_space(18.0);
+            ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                let gap = 16.0;
+                let w = ui.available_width();
+                let cols = (((w + gap) / (460.0 + gap)).floor() as usize).max(1);
+                let cw = ((w - gap * (cols as f32 - 1.0)) / cols as f32).floor();
+                for (ri, row) in EXAMPLES.chunks(cols).enumerate() {
+                    ui.horizontal_top(|ui| {
+                        ui.spacing_mut().item_spacing.x = gap;
+                        for (ci, ex) in row.iter().enumerate() {
+                            Frame::none().fill(crate::theme::surface()).rounding(12.0).stroke(Stroke::new(1.0_f32, line)).inner_margin(Margin::same(16.0)).show(ui, |ui| {
+                                ui.set_width(cw - 34.0);
+                                ui.horizontal_top(|ui| {
+                                    if let Some(t) = example_thumb(ui.ctx(), ex) {
+                                        let h = 300.0;
+                                        let sz = t.size_vec2();
+                                        ui.add(Image::new(&t).fit_to_exact_size(vec2(h * sz.x / sz.y, h)).rounding(12.0));
+                                        ui.add_space(10.0);
+                                    }
+                                    ui.vertical(|ui| {
+                                        ui.horizontal(|ui| {
+                                            let (r, _) = ui.allocate_exact_size(vec2(36.0, 36.0), Sense::hover());
+                                            ic::paint(ui.painter(), r, &example_icon(ui.ctx(), ex));
+                                            ui.label(RichText::new(ex.title).size(18.0).strong());
+                                        });
+                                        ui.add_space(6.0);
+                                        ui.label(RichText::new(ex.blurb).color(crate::theme::gray(100)));
+                                        ui.add_space(8.0);
+                                        for s in ex.shows {
+                                            ui.label(RichText::new(lbl(ic::CHECK, s)).size(13.0).color(crate::theme::gray(90)));
+                                        }
+                                        ui.add_space(12.0);
+                                        let b = Button::new(RichText::new(lbl(ic::FOLDER_OPEN, "Open a copy")).color(Color32::WHITE).strong()).fill(PRIMARY).rounding(7.0).min_size(vec2(0.0, 32.0));
+                                        if ui.add(b).on_hover_text("Adds a copy to your projects and opens it").clicked() {
+                                            open = Some(ri * cols + ci);
+                                        }
+                                    });
+                                });
+                            });
+                        }
+                    });
+                    ui.add_space(gap);
+                }
+                ui.add_space(24.0);
+            });
+        });
+        if let Some(i) = open {
+            let ex = &EXAMPLES[i];
+            match crate::examples::add(&mut self.store, ex) {
+                Ok(id) => {
+                    self.examples_open = false;
+                    self.editor = Some(Editor::new(id));
+                    self.dirty = true;
+                    self.notice = Some((format!("Added {} to your projects", ex.title), now + 4.0));
+                }
+                Err(e) => self.notice = Some((format!("Couldn't add {}: {e}", ex.title), now + 6.0)),
+            }
+        }
     }
 
     fn projects_page(&mut self, ui: &mut Ui) {
@@ -3824,7 +3936,7 @@ pub(crate) fn run_phone(ui: &mut Ui, rt: &mut Runtime, now: f64, area: &str) -> 
     let (_, t) = phone::fit_area(ui.ctx(), area, canvas, total, |ui| {
         ui.vertical(|ui| {
             let title = rt.title.clone();
-            let look = rt.screen().app_bar.clone();
+            let look = rt.screen().look();
             let sheet = rt.project.sheet_of(rt.screen());
             let below = match (sheet, rt.back_stack.last()) {
                 (Sheet::No, _) | (_, None) => None,
@@ -3834,7 +3946,7 @@ pub(crate) fn run_phone(ui: &mut Ui, rt: &mut Runtime, now: f64, area: &str) -> 
                 // a bottom sheet over the screen that opened it, dimmed
                 Some(b) => {
                     let t = if b.title.is_empty() { rt.project.app_name.clone() } else { b.title.clone() };
-                    let mut sh = phone::shell_begin(ui, &t, &b.app_bar, rt.back_stack.len() > 1);
+                    let mut sh = phone::shell_begin(ui, &t, &b.look(), rt.back_stack.len() > 1);
                     let files: std::collections::HashMap<String, std::path::PathBuf> = rt.project.file_paths().into_iter().map(|(f, p)| (f.name.clone(), p)).collect();
                     phone::draw_still(ui, sh.content, b, &files);
                     let dim = phone::sheet_begin(ui, &mut sh, sheet);
@@ -4178,6 +4290,8 @@ impl eframe::App for App {
                 self.settings_page(ui);
             } else if self.editor.is_some() {
                 self.editor_page(ui);
+            } else if self.examples_open {
+                self.examples_page(ui);
             } else {
                 self.projects_page(ui);
             }

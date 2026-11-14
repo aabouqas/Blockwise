@@ -857,6 +857,10 @@ impl AppBar {
         if self.color == 0 {
             return ANDROID_STATUS;
         }
+        // with no bar, the status bar takes the page's own colour
+        if self.hidden {
+            return self.bar(false);
+        }
         let c = self.bar(false);
         let dim = |sh: u32| (((c >> sh) & 0xFF) * 85 / 100) << sh;
         0xFF00_0000 | dim(16) | dim(8) | dim(0)
@@ -1246,6 +1250,26 @@ pub fn file_base_name(stem: &str) -> String {
         out.push_str("_1");
     }
     out
+}
+
+impl Screen {
+    /// The colour of the page itself: its first layout's background, when
+    /// that layout fills the screen and isn't see-through.
+    pub fn page_color(&self) -> Option<u32> {
+        let w = self.widgets.iter().find(|w| w.parent == "root")?;
+        (w.height == Size::Match && w.bg >> 24 == 0xFF).then_some(w.bg)
+    }
+    /// The app bar as the phones show it: a screen without a bar and with no
+    /// colour picked shows its page's colour behind the status bar.
+    pub fn look(&self) -> AppBar {
+        let mut b = self.app_bar.clone();
+        if b.hidden && b.color == 0 {
+            if let Some(c) = self.page_color() {
+                b.color = c;
+            }
+        }
+        b
+    }
 }
 
 impl Project {

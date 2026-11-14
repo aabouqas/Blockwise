@@ -13,6 +13,7 @@ mod check;
 mod codegen;
 mod designer;
 mod device;
+mod examples;
 mod highlight;
 mod icons;
 mod logic;
