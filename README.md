@@ -5,9 +5,21 @@
   </picture>
 </h1>
 
+<p align="center">
+  <img src="https://img.shields.io/badge/Rust-100%25-B7410E?logo=rust&logoColor=white" alt="100% Rust">
+  <img src="https://img.shields.io/badge/macOS-000000?logo=apple&logoColor=white" alt="macOS">
+  <img src="https://img.shields.io/badge/Windows-0078D4?logo=data:image/svg%2bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0id2hpdGUiIGQ9Ik0yIDJoOS41djkuNUgyek0xMi41IDJIMjJ2OS41aC05LjV6TTIgMTIuNWg5LjVWMjJIMnpNMTIuNSAxMi41SDIyVjIyaC05LjV6Ii8+PC9zdmc+" alt="Windows">
+  <img src="https://img.shields.io/badge/Linux-FCC624?logo=linux&logoColor=black" alt="Linux">
+  <br>
+  <img src="https://img.shields.io/badge/Android-Kotlin-3DDC84?logo=android&logoColor=white" alt="Makes Android apps in Kotlin">
+  <img src="https://img.shields.io/badge/iOS-SwiftUI-F05138?logo=swift&logoColor=white" alt="Makes iOS apps in SwiftUI">
+  <img src="https://img.shields.io/badge/MCP-ready-6E56CF?logo=modelcontextprotocol&logoColor=white" alt="MCP ready">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="Apache 2.0 license"></a>
+</p>
+
 **Build real Android and iOS apps without writing code.** Design your screens by dragging widgets onto a phone, make them do things by snapping blocks together, and try the app at once, right in the editor. When it's ready, Blockwise gives you a real Kotlin project for Android Studio and a SwiftUI project for Xcode, or runs the app on the Android emulator and the iPhone simulator for you.
 
-![The designer: widgets on the left, the phone in the middle, the selected widget's settings on the right](docs/images/design.png)
+![The designer: widgets on the l![alt text](image.png)eft, the phone in the middle, the selected widget's settings on the right](docs/images/design.png)
 
 ## What you can do
 

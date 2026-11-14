@@ -524,6 +524,18 @@ impl App {
                 "design" => {
                     ed.design.selected = Some("button1".into());
                 }
+                // the Component Tour example (the README's designer pictures):
+                // a button selected, or the app playing
+                "design-tour" | "design-tour-play" => {
+                    let mut tour = crate::examples::EXAMPLES[0].project();
+                    tour.id = pid;
+                    app.store.projects[0] = tour;
+                    if o == "design-tour-play" {
+                        ed.run = Some(Runtime::new(app.store.projects[0].clone(), 0.0));
+                    } else {
+                        ed.design.selected = Some("toastButton".into());
+                    }
+                }
                 // the button row set to wrap content, inside the centered column
                 "design-wrap" => {
                     if let Some(w) = app.store.projects[0].screens[0].widgets.iter_mut().find(|w| w.id == "linear2") {
