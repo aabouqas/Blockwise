@@ -61,7 +61,7 @@ fn main() -> eframe::Result<()> {
         return Ok(());
     }
 
-    let mut viewport = egui::ViewportBuilder::default().with_title("Blockwise").with_inner_size([1440.0, 920.0]).with_min_inner_size([960.0, 640.0]);
+    let mut viewport = egui::ViewportBuilder::default().with_title("Blockwise").with_app_id(model::APP_ID).with_inner_size([1440.0, 920.0]).with_min_inner_size([960.0, 640.0]);
     if let Some(icon) = app_icon() {
         viewport = viewport.with_icon(icon);
     }

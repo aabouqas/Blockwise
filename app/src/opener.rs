@@ -136,14 +136,16 @@ fn register() {
 fn register_for(exe: &Path) -> bool {
     use std::os::windows::process::CommandExt;
     const NO_WINDOW: u32 = 0x0800_0000;
+    // the same id the macOS app gives the file type
+    const PROG_ID: &str = "dev.eledrissi.blockwise.project";
     let exe = exe.display();
     let keys = [
-        (r"HKCU\Software\Classes\.bw", "Blockwise.Project".to_string()),
-        (r"HKCU\Software\Classes\Blockwise.Project", "Blockwise project".to_string()),
-        (r"HKCU\Software\Classes\Blockwise.Project\DefaultIcon", format!("\"{exe}\",0")),
-        (r"HKCU\Software\Classes\Blockwise.Project\shell\open\command", format!("\"{exe}\" \"%1\"")),
+        (r"HKCU\Software\Classes\.bw".to_string(), PROG_ID.to_string()),
+        (format!(r"HKCU\Software\Classes\{PROG_ID}"), "Blockwise project".to_string()),
+        (format!(r"HKCU\Software\Classes\{PROG_ID}\DefaultIcon"), format!("\"{exe}\",0")),
+        (format!(r"HKCU\Software\Classes\{PROG_ID}\shell\open\command"), format!("\"{exe}\" \"%1\"")),
     ];
-    keys.iter().all(|(key, value)| std::process::Command::new("reg").args(["add", key, "/ve", "/d", value, "/f"]).creation_flags(NO_WINDOW).output().is_ok_and(|o| o.status.success()))
+    keys.iter().all(|(key, value)| std::process::Command::new("reg").args(["add", key.as_str(), "/ve", "/d", value.as_str(), "/f"]).creation_flags(NO_WINDOW).output().is_ok_and(|o| o.status.success()))
 }
 
 /// Linux: a MIME type for *.bw and a desktop entry that opens it, in the
@@ -160,18 +162,22 @@ fn register_for(exe: &Path) -> bool {
     let icon = exe.with_file_name("blockwise.png");
     let icon = if icon.is_file() { icon.display().to_string() } else { "blockwise".into() };
     let desktop = format!(
-        "[Desktop Entry]\nType=Application\nName=Blockwise\nComment=Build Android and iOS apps visually\nExec=\"{}\" %f\nIcon={icon}\nCategories=Development;\nMimeType={MIME};\nTerminal=false\n",
-        exe.display()
+        "[Desktop Entry]\nType=Application\nName=Blockwise\nComment=Build Android and iOS apps visually\nExec=\"{}\" %f\nIcon={icon}\nCategories=Development;\nMimeType={MIME};\nStartupWMClass={id}\nTerminal=false\n",
+        exe.display(),
+        id = crate::model::APP_ID
     );
+    // named after the app's id, which the window also gives, so the desktop
+    // matches the window to this entry and its icon
+    let entry = format!("{}.desktop", crate::model::APP_ID);
     let (mime_dir, apps) = (share.join("mime"), share.join("applications"));
     let written = std::fs::create_dir_all(mime_dir.join("packages")).is_ok()
         && std::fs::create_dir_all(&apps).is_ok()
-        && std::fs::write(mime_dir.join("packages/blockwise.xml"), xml).is_ok()
-        && std::fs::write(apps.join("blockwise.desktop"), desktop).is_ok();
+        && std::fs::write(mime_dir.join(format!("packages/{}.xml", crate::model::APP_ID)), xml).is_ok()
+        && std::fs::write(apps.join(&entry), desktop).is_ok();
     // these tools may be missing; the files above still work after the next login
     let _ = Command::new("update-mime-database").arg(&mime_dir).output();
     let _ = Command::new("update-desktop-database").arg(&apps).output();
-    let _ = Command::new("xdg-mime").args(["default", "blockwise.desktop", MIME]).output();
+    let _ = Command::new("xdg-mime").args(["default", entry.as_str(), MIME]).output();
     written
 }
 

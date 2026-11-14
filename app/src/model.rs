@@ -1586,6 +1586,9 @@ pub fn project_snapshot(p: &Project) -> String {
     serde_json::to_string(&c).unwrap_or_default()
 }
 
+/// Blockwise's own id (reverse domain), on every system.
+pub const APP_ID: &str = "dev.eledrissi.blockwise";
+
 /// The extension of Blockwise project files.
 pub const BW_EXT: &str = "bw";
 

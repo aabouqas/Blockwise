@@ -115,7 +115,8 @@ PLIST
     mkdir -p "$dir"
     cp target/release/Blockwise "$dir/"
     cp assets/brand/icon-512.png "$dir/blockwise.png"
-    cat > "$dir/blockwise.desktop" <<DESKTOP
+    # named after the app id (dev.eledrissi.blockwise), which the window gives too
+    cat > "$dir/dev.eledrissi.blockwise.desktop" <<DESKTOP
 [Desktop Entry]
 Type=Application
 Name=Blockwise
@@ -124,6 +125,7 @@ Exec=Blockwise %f
 Icon=blockwise
 Categories=Development;
 MimeType=application/x-blockwise-project;
+StartupWMClass=dev.eledrissi.blockwise
 DESKTOP
     legal "$dir"
     file="$out/$name.tar.gz"
