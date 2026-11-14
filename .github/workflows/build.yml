@@ -1,11 +1,30 @@
 # Builds and tests Blockwise on macOS, Linux and Windows, and keeps each
 # build as a downloadable artifact on the run's page.
+#
+# It runs only when something the app is built from changes: a push that
+# touches just the docs, the README or the APKs doesn't start it. Start it by
+# hand from the Actions page (Run workflow) when you want a build anyway.
 name: Build
 
 on:
   push:
     branches: [main]
+    paths:
+      - "app/**"
+      - "!app/export_example.py"
+      - "!app/package.sh"
+      # built into the app (examples.rs)
+      - "examples/*.bw"
+      - "docs/images/examples/*-card.png"
+      - ".github/workflows/build.yml"
   pull_request:
+    paths:
+      - "app/**"
+      - "!app/export_example.py"
+      - "!app/package.sh"
+      - "examples/*.bw"
+      - "docs/images/examples/*-card.png"
+      - ".github/workflows/build.yml"
   workflow_dispatch:
 
 permissions:
