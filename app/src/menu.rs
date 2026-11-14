@@ -79,6 +79,7 @@ mod mac {
                 name: Some("Blockwise".into()),
                 version: Some(env!("CARGO_PKG_VERSION").into()),
                 comments: Some("Build Android and iOS apps with blocks.".into()),
+                copyright: Some("Copyright 2026 Aissam Abouqassime El Edrissi. Apache License 2.0.".into()),
                 ..Default::default()
             };
             let settings = MenuItem::with_id("settings", "Settings…", true, key(Code::Comma));

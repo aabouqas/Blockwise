@@ -5,6 +5,7 @@ edition = "2021"
 authors = ["Aissam Abouqassime El Edrissi"]
 description = "Build Android and iOS apps visually: design screens, snap logic blocks together, try the app at once, and get real Kotlin and SwiftUI projects."
 license = "Apache-2.0"
+repository = "https://github.com/aabouqas/Blockwise"
 readme = "../README.md"
 keywords = ["no-code", "app-builder", "android", "ios", "blocks"]
 categories = ["development-tools", "gui"]

@@ -70,7 +70,7 @@ case "$system" in
   <key>LSMinimumSystemVersion</key><string>$MACOSX_DEPLOYMENT_TARGET</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
   <key>NSHighResolutionCapable</key><true/>
-  <key>NSHumanReadableCopyright</key><string>Licensed under the Apache License 2.0</string>
+  <key>NSHumanReadableCopyright</key><string>Copyright 2026 Aissam Abouqassime El Edrissi. Apache License 2.0.</string>
   <!-- .bw project files open in Blockwise -->
   <key>CFBundleDocumentTypes</key>
   <array>
