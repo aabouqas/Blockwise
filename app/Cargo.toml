@@ -1,6 +1,6 @@
 [package]
 name = "blockwise"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["Aissam Abouqassime El Edrissi"]
 description = "Build Android and iOS apps visually: design screens, snap logic blocks together, try the app at once, and get real Kotlin and SwiftUI projects."
